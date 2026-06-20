@@ -1,0 +1,38 @@
+[project]
+name = "realtime-call-transcriber"
+version = "0.1.0"
+description = "Local realtime call transcription desktop app for Windows."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "PySide6>=6.7",
+    "sounddevice>=0.4.7",
+    "numpy>=1.26",
+    "psutil>=5.9",
+    "faster-whisper>=1.0",
+]
+
+[project.optional-dependencies]
+gpu = [
+    "GPUtil>=1.4",
+    "nvidia-ml-py>=12.535",
+    "torch>=2.3",
+]
+dev = [
+    "pytest>=8.2",
+    "ruff>=0.5",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["app"]
+
+[tool.setuptools.packages.find]
+include = ["audio*", "config*", "core*", "gui*", "speech*", "storage*"]
