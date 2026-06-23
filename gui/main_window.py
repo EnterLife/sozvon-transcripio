@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread, QTimer, Signal, Slot
@@ -98,6 +99,11 @@ class MainWindow(QMainWindow):
         self.loopback_label = QLabel("System audio: idle")
         self.transcript = QPlainTextEdit()
         self.transcript.setReadOnly(True)
+        self.status_console = QPlainTextEdit()
+        self.status_console.setReadOnly(True)
+        self.status_console.setMaximumHeight(120)
+        self.status_console.setPlaceholderText("Status")
+        self.status_console.document().setMaximumBlockCount(200)
 
         self.start_button = QPushButton("Start")
         self.stop_button = QPushButton("Stop")
@@ -151,12 +157,13 @@ class MainWindow(QMainWindow):
         layout.addLayout(controls)
         layout.addLayout(indicators)
         layout.addWidget(self.transcript, stretch=1)
+        layout.addWidget(self.status_console)
 
         container = QWidget()
         container.setLayout(layout)
         self.setCentralWidget(container)
         self.setStatusBar(QStatusBar())
-        self.statusBar().showMessage("Preparing model...")
+        self._set_status("Preparing model...")
 
     def _connect_signals(self) -> None:
         self.start_button.clicked.connect(self._start)
@@ -167,7 +174,7 @@ class MainWindow(QMainWindow):
         self.clear_button.clicked.connect(self._clear_session)
         self.transcript_event.connect(self._on_transcript_event)
         self.worker_error.connect(self._show_error)
-        self.capture_status.connect(self.statusBar().showMessage)
+        self.capture_status.connect(self._set_status)
 
     def _apply_default_devices(self) -> None:
         if self.settings.audio.microphone_device is None:
@@ -181,7 +188,7 @@ class MainWindow(QMainWindow):
             self.model_selection = None
             self.model_label.setText("Model: test mode")
             self.gpu_label.setText("Acceleration: test")
-            self.statusBar().showMessage("Ready in test mode")
+            self._set_status("Ready in test mode")
             self.start_button.setEnabled(True)
             return
         self._load_model_async()
@@ -196,7 +203,7 @@ class MainWindow(QMainWindow):
         self.model_thread.started.connect(self.model_loader.run)
         self.model_loader.loaded.connect(self._on_model_loaded)
         self.model_loader.failed.connect(self._on_model_failed)
-        self.model_loader.status.connect(self.statusBar().showMessage)
+        self.model_loader.status.connect(self._set_status)
         self.model_loader.loaded.connect(self.model_thread.quit)
         self.model_loader.failed.connect(self.model_thread.quit)
         self.model_thread.start()
@@ -210,13 +217,13 @@ class MainWindow(QMainWindow):
         self.model_label.setText(f"Model: {selection.model_size}")
         gpu_state = "CUDA" if selection.hardware.cuda_available else "CPU"
         self.gpu_label.setText(f"Acceleration: {gpu_state}")
-        self.statusBar().showMessage("Ready")
+        self._set_status("Ready")
         self.start_button.setEnabled(True)
 
     @Slot(str)
     def _on_model_failed(self, message: str) -> None:
         self.model_label.setText("Model: failed")
-        self.statusBar().showMessage("Model loading failed")
+        self._set_status("Model loading failed")
         self._show_error(message)
 
     def _start(self) -> None:
@@ -274,7 +281,7 @@ class MainWindow(QMainWindow):
         self.loopback_label.setText("System audio: active")
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
-        self.statusBar().showMessage("Transcribing...")
+        self._set_status("Transcribing...")
         logger.info("Transcription started")
 
     def _stop(self) -> None:
@@ -288,7 +295,7 @@ class MainWindow(QMainWindow):
         self.loopback_label.setText("System audio: idle")
         self.start_button.setEnabled(self.model is not None)
         self.stop_button.setEnabled(False)
-        self.statusBar().showMessage("Stopped")
+        self._set_status("Stopped")
         logger.info("Transcription stopped")
 
     def _open_settings(self) -> None:
@@ -301,7 +308,7 @@ class MainWindow(QMainWindow):
             save_settings(self.paths.settings_file, self.settings)
             self.autosave.setInterval(max(5, self.settings.storage.autosave_seconds) * 1000)
             self.store = TranscriptStore(Path(self.settings.storage.transcript_dir or self.paths.transcripts_dir))
-            self.statusBar().showMessage("Settings saved")
+            self._set_status("Settings saved")
             recognition_changed = (
                 previous_dry_run != self.settings.recognition.dry_run
                 or previous_model != self.settings.recognition.model_size
@@ -322,7 +329,19 @@ class MainWindow(QMainWindow):
     @Slot(str)
     def _show_error(self, message: str) -> None:
         logger.error(message)
+        self._append_status("ERROR", message)
         QMessageBox.warning(self, "Realtime Call Transcriber", message)
+
+    @Slot(str)
+    def _set_status(self, message: str) -> None:
+        self.statusBar().showMessage(message)
+        self._append_status("INFO", message)
+
+    def _append_status(self, level: str, message: str) -> None:
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.status_console.appendPlainText(f"[{timestamp}] {level}: {message}")
+        scrollbar = self.status_console.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
 
     def _save_transcript(self) -> None:
         self.store.save()
@@ -340,16 +359,16 @@ class MainWindow(QMainWindow):
         target_path = Path(target)
         source = self.store.json_path if target_path.suffix.lower() == ".json" else self.store.txt_path
         write_text_atomic(target_path, source.read_text(encoding="utf-8"))
-        self.statusBar().showMessage(f"Exported to {target_path}")
+        self._set_status(f"Exported to {target_path}")
 
     def _new_session(self) -> None:
         self._save_transcript()
         self.store = TranscriptStore(Path(self.settings.storage.transcript_dir or self.paths.transcripts_dir))
         self.transcript.clear()
-        self.statusBar().showMessage("New transcript session started")
+        self._set_status("New transcript session started")
 
     def _clear_session(self) -> None:
         self.store.clear()
         self.transcript.clear()
         self._save_transcript()
-        self.statusBar().showMessage("Transcript cleared")
+        self._set_status("Transcript cleared")
