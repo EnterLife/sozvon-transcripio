@@ -8,7 +8,7 @@ Implemented MVP foundation:
 
 - PySide6 desktop UI.
 - Microphone capture.
-- WASAPI loopback capture for system audio.
+- WASAPI loopback capture for system audio through `soundcard`.
 - Source-based speaker separation: `Я` / `Собеседник`.
 - Hardware detection and automatic Whisper model selection.
 - Local `faster-whisper` transcription.
