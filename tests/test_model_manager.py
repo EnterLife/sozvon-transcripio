@@ -54,6 +54,26 @@ def test_model_download_env_temporarily_bypasses_unsupported_proxy(monkeypatch) 
         assert "no_proxy" not in os.environ
 
 
+def test_model_download_env_temporarily_sets_hf_token(monkeypatch) -> None:
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setattr("urllib.request.getproxies", lambda: {})
+
+    with _model_download_env(hf_token=" hf_test_token "):
+        assert os.environ["HF_TOKEN"] == "hf_test_token"
+
+    assert "HF_TOKEN" not in os.environ
+
+
+def test_model_download_env_restores_existing_hf_token(monkeypatch) -> None:
+    monkeypatch.setenv("HF_TOKEN", "existing_token")
+    monkeypatch.setattr("urllib.request.getproxies", lambda: {})
+
+    with _model_download_env(hf_token="new_token"):
+        assert os.environ["HF_TOKEN"] == "new_token"
+
+    assert os.environ["HF_TOKEN"] == "existing_token"
+
+
 def test_no_proxy_star_already_bypasses_proxy_validation(monkeypatch) -> None:
     monkeypatch.setenv("ALL_PROXY", "socks4://127.0.0.1:10808")
     monkeypatch.setenv("NO_PROXY", "*")

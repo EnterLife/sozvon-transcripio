@@ -31,6 +31,7 @@ class SettingsDialog(QDialog):
         self.language_combo = QComboBox()
         self.model_combo = QComboBox()
         self.auto_model = QCheckBox("Auto-select")
+        self.hf_token = QLineEdit()
         self.dry_run = QCheckBox("Use test transcript engine")
         self.sample_rate = QComboBox()
         self.chunk_seconds = QDoubleSpinBox()
@@ -46,6 +47,7 @@ class SettingsDialog(QDialog):
         form.addRow("Language", self.language_combo)
         form.addRow("Model", self.model_combo)
         form.addRow("Model selection", self.auto_model)
+        form.addRow("Hugging Face token", self.hf_token)
         form.addRow("Test mode", self.dry_run)
         form.addRow("Sample rate", self.sample_rate)
         form.addRow("Chunk seconds", self.chunk_seconds)
@@ -64,6 +66,7 @@ class SettingsDialog(QDialog):
         layout.addLayout(form)
         layout.addWidget(buttons)
         self.browse_button.clicked.connect(self._browse_transcript_dir)
+        self.auto_model.toggled.connect(self._update_model_enabled)
 
     def accept(self) -> None:
         self.settings.audio.microphone_device = self.mic_combo.currentData()
@@ -73,6 +76,7 @@ class SettingsDialog(QDialog):
         self.settings.recognition.language = self.language_combo.currentData()
         self.settings.recognition.model_size = self.model_combo.currentData()
         self.settings.recognition.auto_select_model = self.auto_model.isChecked()
+        self.settings.recognition.hf_token = self.hf_token.text().strip() or None
         self.settings.recognition.dry_run = self.dry_run.isChecked()
         self.settings.storage.autosave_seconds = self.autosave_seconds.value()
         self.settings.storage.transcript_dir = self.transcript_dir.text().strip() or None
@@ -90,7 +94,11 @@ class SettingsDialog(QDialog):
             self.model_combo.addItem(model, model)
         self._select_data(self.model_combo, self.settings.recognition.model_size or "base")
         self.auto_model.setChecked(self.settings.recognition.auto_select_model)
+        self.hf_token.setEchoMode(QLineEdit.Password)
+        self.hf_token.setPlaceholderText("Optional token for model downloads")
+        self.hf_token.setText(self.settings.recognition.hf_token or "")
         self.dry_run.setChecked(self.settings.recognition.dry_run)
+        self._update_model_enabled()
 
         for sample_rate in (8000, 16000, 22050, 44100, 48000):
             self.sample_rate.addItem(f"{sample_rate} Hz", sample_rate)
@@ -133,3 +141,6 @@ class SettingsDialog(QDialog):
         )
         if directory:
             self.transcript_dir.setText(directory)
+
+    def _update_model_enabled(self) -> None:
+        self.model_combo.setEnabled(not self.auto_model.isChecked())

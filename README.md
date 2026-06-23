@@ -99,6 +99,8 @@ Application data is stored in `%APPDATA%\RealtimeCallTranscriber`.
 
 The app can download public Whisper models from Hugging Face without a token. Set
 `HF_TOKEN` only if you need higher Hugging Face rate limits or faster downloads.
+You can enter the token in `Settings` under `Hugging Face token`; it is used for
+model downloads.
 
 ## Test Mode
 

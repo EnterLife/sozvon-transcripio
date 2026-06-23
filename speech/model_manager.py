@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 _PROXY_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
 _NO_PROXY_ENV_VARS = ("NO_PROXY", "no_proxy")
+_HF_TOKEN_ENV_VAR = "HF_TOKEN"
 _SUPPORTED_PROXY_SCHEMES = {"http", "https", "socks5", "socks5h"}
 
 
@@ -66,28 +67,43 @@ def _unsupported_proxy_env() -> dict[str, str]:
 
 
 @contextmanager
-def _model_download_env(progress: callable | None = None) -> Iterator[None]:
+def _model_download_env(
+    progress: callable | None = None,
+    hf_token: str | None = None,
+) -> Iterator[None]:
     unsupported = _unsupported_proxy_env()
-    if not unsupported:
+    token = hf_token.strip() if hf_token else None
+    if not unsupported and not token:
         yield
         return
 
-    logger.warning("Bypassing unsupported proxy settings for model download: %s", unsupported)
-    if progress:
+    if unsupported:
+        logger.warning("Bypassing unsupported proxy settings for model download: %s", unsupported)
+    if unsupported and progress:
         progress("Unsupported system proxy ignored for model download; using direct connection")
 
     no_proxy_names = tuple(_unique_env_names(_NO_PROXY_ENV_VARS))
     previous_no_proxy = {name: os.environ.get(name) for name in no_proxy_names}
+    previous_hf_token = os.environ.get(_HF_TOKEN_ENV_VAR)
     try:
-        for name in no_proxy_names:
-            os.environ[name] = "*"
+        if unsupported:
+            for name in no_proxy_names:
+                os.environ[name] = "*"
+        if token:
+            os.environ[_HF_TOKEN_ENV_VAR] = token
         yield
     finally:
-        for name, value in previous_no_proxy.items():
-            if value is None:
-                os.environ.pop(name, None)
+        if token:
+            if previous_hf_token is None:
+                os.environ.pop(_HF_TOKEN_ENV_VAR, None)
             else:
-                os.environ[name] = value
+                os.environ[_HF_TOKEN_ENV_VAR] = previous_hf_token
+        if unsupported:
+            for name, value in previous_no_proxy.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
 
 
 class ModelManager:
@@ -104,7 +120,12 @@ class ModelManager:
         logger.info("Selected model: %s", selection)
         return selection
 
-    def ensure_model(self, selection: ModelSelection, progress: callable | None = None):
+    def ensure_model(
+        self,
+        selection: ModelSelection,
+        progress: callable | None = None,
+        hf_token: str | None = None,
+    ):
         try:
             from faster_whisper import WhisperModel
         except Exception as exc:
@@ -116,7 +137,7 @@ class ModelManager:
             progress(f"Loading model {selection.model_size}...")
 
         try:
-            with _model_download_env(progress):
+            with _model_download_env(progress, hf_token):
                 return WhisperModel(
                     selection.model_size,
                     device=selection.device,

@@ -7,6 +7,9 @@ def test_settings_roundtrip(tmp_path) -> None:
     settings.audio.microphone_device = 3
     settings.audio.chunk_seconds = 0.75
     settings.recognition.language = "en"
+    settings.recognition.model_size = "small"
+    settings.recognition.auto_select_model = False
+    settings.recognition.hf_token = "hf_test_token"
     settings.recognition.dry_run = True
     settings.storage.autosave_seconds = 15
 
@@ -16,6 +19,9 @@ def test_settings_roundtrip(tmp_path) -> None:
     assert loaded.audio.microphone_device == 3
     assert loaded.audio.chunk_seconds == 0.75
     assert loaded.recognition.language == "en"
+    assert loaded.recognition.model_size == "small"
+    assert loaded.recognition.auto_select_model is False
+    assert loaded.recognition.hf_token == "hf_test_token"
     assert loaded.recognition.dry_run is True
     assert loaded.storage.autosave_seconds == 15
 
@@ -69,6 +75,7 @@ def test_invalid_setting_values_fall_back_or_clamp(tmp_path) -> None:
             "model_size": "huge",
             "auto_select_model": "yes",
             "compute_type": "surprise",
+            "hf_token": 123,
             "dry_run": 1
           },
           "storage": {
@@ -90,6 +97,7 @@ def test_invalid_setting_values_fall_back_or_clamp(tmp_path) -> None:
     assert settings.recognition.model_size is None
     assert settings.recognition.auto_select_model is True
     assert settings.recognition.compute_type == "auto"
+    assert settings.recognition.hf_token is None
     assert settings.recognition.dry_run is False
     assert settings.storage.autosave_seconds == 5
     assert settings.storage.transcript_dir is None

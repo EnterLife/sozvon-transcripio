@@ -60,7 +60,11 @@ class ModelLoader(QObject):
                 self.settings.recognition.auto_select_model,
             )
             self.status.emit(f"Loading {selection.model_size} on {selection.device}")
-            model = self.manager.ensure_model(selection, self.status.emit)
+            model = self.manager.ensure_model(
+                selection,
+                self.status.emit,
+                self.settings.recognition.hf_token,
+            )
             self.loaded.emit(model, selection)
         except Exception as exc:
             logger.exception("Model loading failed")
@@ -291,6 +295,7 @@ class MainWindow(QMainWindow):
         previous_dry_run = self.settings.recognition.dry_run
         previous_model = self.settings.recognition.model_size
         previous_auto = self.settings.recognition.auto_select_model
+        previous_hf_token = self.settings.recognition.hf_token
         dialog = SettingsDialog(self.settings, list_audio_devices(), self)
         if dialog.exec():
             save_settings(self.paths.settings_file, self.settings)
@@ -301,6 +306,7 @@ class MainWindow(QMainWindow):
                 previous_dry_run != self.settings.recognition.dry_run
                 or previous_model != self.settings.recognition.model_size
                 or previous_auto != self.settings.recognition.auto_select_model
+                or previous_hf_token != self.settings.recognition.hf_token
             )
             if recognition_changed:
                 self._stop()

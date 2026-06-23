@@ -29,6 +29,7 @@ class RecognitionSettings:
     model_size: str | None = None
     auto_select_model: bool = True
     compute_type: str = "auto"
+    hf_token: str | None = None
     dry_run: bool = False
 
 
@@ -169,6 +170,10 @@ def _normalize_settings(settings: AppSettings) -> AppSettings:
                 settings.recognition.compute_type,
                 recognition_defaults.compute_type,
                 COMPUTE_TYPES,
+            ),
+            hf_token=_optional_non_empty_string(
+                settings.recognition.hf_token,
+                recognition_defaults.hf_token,
             ),
             dry_run=_bool(settings.recognition.dry_run, recognition_defaults.dry_run),
         ),
