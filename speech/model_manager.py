@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import urllib.request
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -55,6 +56,12 @@ def _unsupported_proxy_env() -> dict[str, str]:
         scheme = urlparse(value).scheme.lower()
         if scheme not in _SUPPORTED_PROXY_SCHEMES:
             unsupported[name] = value
+    for name, value in urllib.request.getproxies().items():
+        if name == "no":
+            continue
+        scheme = urlparse(value).scheme.lower()
+        if scheme not in _SUPPORTED_PROXY_SCHEMES:
+            unsupported[f"system:{name}"] = value
     return unsupported
 
 

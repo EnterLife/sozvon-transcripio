@@ -24,6 +24,9 @@ setup.bat
 run.bat
 ```
 
+When started by double-click, `setup.bat` keeps the console window open until you
+press a key, so setup errors remain visible.
+
 Check the runtime without opening the GUI:
 
 ```bat
