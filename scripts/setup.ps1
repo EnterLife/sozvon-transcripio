@@ -2,6 +2,7 @@ param(
     [switch]$CpuOnly,
     [switch]$Dev,
     [switch]$Recreate,
+    [switch]$UpgradePip,
     [switch]$UseSystemProxy,
     [string]$Python = "python"
 )
@@ -44,8 +45,13 @@ try {
         Invoke-Checked -Command $Python -Arguments @("-m", "venv", $Venv)
     }
 
-    Write-Host "Upgrading pip..."
-    Invoke-Checked -Command $PythonExe -Arguments @("-m", "pip", "install", "--upgrade", "pip")
+    if ($UpgradePip) {
+        Write-Host "Upgrading pip..."
+        Invoke-Checked -Command $PythonExe -Arguments @("-m", "pip", "install", "--upgrade", "pip")
+    } else {
+        Write-Host "Using existing pip. Pass -UpgradePip to update pip explicitly."
+        Invoke-Checked -Command $PythonExe -Arguments @("-m", "pip", "--version")
+    }
 
     $Extras = @()
     if (-not $CpuOnly) {

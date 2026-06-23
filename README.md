@@ -22,20 +22,20 @@ Implemented MVP foundation:
 
 ## Quick Start
 
-Double-click `setup.bat`, then `run.bat`, or run:
+Double-click `scripts\setup.bat`, then `scripts\run.bat`, or run:
 
 ```bat
-setup.bat
-run.bat
+scripts\setup.bat
+scripts\run.bat
 ```
 
-When started by double-click, `setup.bat` keeps the console window open until you
+When started by double-click, `scripts\setup.bat` keeps the console window open until you
 press a key, so setup errors remain visible.
 
 Check the runtime without opening the GUI:
 
 ```bat
-run.bat -Check
+scripts\run.bat -Check
 ```
 
 PowerShell entry points are also available:
@@ -55,15 +55,22 @@ CPU-only setup:
 From `cmd.exe`:
 
 ```bat
-setup.bat -CpuOnly
-run.bat
+scripts\setup.bat -CpuOnly
+scripts\run.bat
 ```
 
 By default setup bypasses the system proxy for pip because Windows may expose SOCKS
 proxy settings that pip cannot use without extra packages. To use the system proxy:
 
 ```bat
-setup.bat -UseSystemProxy
+scripts\setup.bat -UseSystemProxy
+```
+
+Setup uses the existing virtual-environment `pip` by default. To update `pip`
+explicitly:
+
+```bat
+scripts\setup.bat -UpgradePip
 ```
 
 Development setup with tests:
@@ -76,8 +83,8 @@ Development setup with tests:
 From `cmd.exe`:
 
 ```bat
-setup.bat -Dev
-test.bat
+scripts\setup.bat -Dev
+scripts\test.bat
 ```
 
 ## Manual Run With GPU
