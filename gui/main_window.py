@@ -29,6 +29,7 @@ from audio.devices import (
 from audio.loopback_capture import LoopbackCapture
 from audio.microphone_capture import MicrophoneCapture
 from config.settings import AppSettings, load_settings, save_settings
+from core.atomic_write import write_text_atomic
 from core.paths import AppPaths
 from gui.settings_dialog import SettingsDialog
 from speech.mock_engine import MockTranscriptionEngine
@@ -332,7 +333,7 @@ class MainWindow(QMainWindow):
             return
         target_path = Path(target)
         source = self.store.json_path if target_path.suffix.lower() == ".json" else self.store.txt_path
-        target_path.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+        write_text_atomic(target_path, source.read_text(encoding="utf-8"))
         self.statusBar().showMessage(f"Exported to {target_path}")
 
     def _new_session(self) -> None:

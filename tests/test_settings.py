@@ -51,3 +51,45 @@ def test_invalid_settings_sections_are_ignored(tmp_path) -> None:
     assert settings.audio.sample_rate == 16_000
     assert settings.recognition.language == "ru"
     assert settings.storage.autosave_seconds == 10
+
+
+def test_invalid_setting_values_fall_back_or_clamp(tmp_path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        """
+        {
+          "audio": {
+            "microphone_device": "default",
+            "loopback_device": true,
+            "sample_rate": 12345,
+            "chunk_seconds": 9
+          },
+          "recognition": {
+            "language": "de",
+            "model_size": "huge",
+            "auto_select_model": "yes",
+            "compute_type": "surprise",
+            "dry_run": 1
+          },
+          "storage": {
+            "autosave_seconds": 1,
+            "transcript_dir": "   "
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    settings = load_settings(path)
+
+    assert settings.audio.microphone_device is None
+    assert settings.audio.loopback_device is None
+    assert settings.audio.sample_rate == 16_000
+    assert settings.audio.chunk_seconds == 2.0
+    assert settings.recognition.language == "ru"
+    assert settings.recognition.model_size is None
+    assert settings.recognition.auto_select_model is True
+    assert settings.recognition.compute_type == "auto"
+    assert settings.recognition.dry_run is False
+    assert settings.storage.autosave_seconds == 5
+    assert settings.storage.transcript_dir is None

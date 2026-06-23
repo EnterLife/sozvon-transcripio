@@ -49,3 +49,11 @@ def test_transcript_store_recreates_directory_on_save(tmp_path) -> None:
 
     assert store.txt_path.exists()
     assert store.json_path.exists()
+
+
+def test_transcript_store_does_not_leave_temp_files(tmp_path) -> None:
+    store = TranscriptStore(tmp_path)
+
+    store.save()
+
+    assert list(tmp_path.glob("*.tmp")) == []

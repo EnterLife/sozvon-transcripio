@@ -23,6 +23,12 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
+Write-Host "Running linter..."
+& $PythonExe -m ruff check .
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+
 Write-Host "Running tests..."
 & $PythonExe -m pytest -q
 exit $LASTEXITCODE

@@ -101,6 +101,7 @@ session controls, and autosave without downloading or loading a Whisper model.
 
 ```powershell
 python -m compileall -q app.py audio config core gui speech storage tests
+python -m ruff check .
 python -m pytest -q
 ```
 

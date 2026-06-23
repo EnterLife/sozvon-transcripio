@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
+from core.atomic_write import write_text_atomic
 from speech.types import TranscriptEvent
 
 
@@ -40,12 +41,11 @@ class TranscriptStore:
         self.records.clear()
 
     def save(self) -> None:
-        self.directory.mkdir(parents=True, exist_ok=True)
-        self.json_path.write_text(
+        write_text_atomic(
+            self.json_path,
             json.dumps([asdict(record) for record in self.records], ensure_ascii=False, indent=2),
-            encoding="utf-8",
         )
-        self.txt_path.write_text(self._to_text(), encoding="utf-8")
+        write_text_atomic(self.txt_path, self._to_text())
 
     def _to_text(self) -> str:
         return "\n\n".join(
