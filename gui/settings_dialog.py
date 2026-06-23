@@ -31,6 +31,9 @@ class SettingsDialog(QDialog):
         self.language_combo = QComboBox()
         self.model_combo = QComboBox()
         self.auto_model = QCheckBox("Auto-select")
+        self.device_combo = QComboBox()
+        self.compute_type_combo = QComboBox()
+        self.auto_install_cuda_runtime = QCheckBox("Auto-install missing CUDA runtime")
         self.hf_token = QLineEdit()
         self.dry_run = QCheckBox("Use test transcript engine")
         self.sample_rate = QComboBox()
@@ -47,6 +50,9 @@ class SettingsDialog(QDialog):
         form.addRow("Language", self.language_combo)
         form.addRow("Model", self.model_combo)
         form.addRow("Model selection", self.auto_model)
+        form.addRow("Device", self.device_combo)
+        form.addRow("Compute type", self.compute_type_combo)
+        form.addRow("GPU runtime", self.auto_install_cuda_runtime)
         form.addRow("Hugging Face token", self.hf_token)
         form.addRow("Test mode", self.dry_run)
         form.addRow("Sample rate", self.sample_rate)
@@ -76,6 +82,11 @@ class SettingsDialog(QDialog):
         self.settings.recognition.language = self.language_combo.currentData()
         self.settings.recognition.model_size = self.model_combo.currentData()
         self.settings.recognition.auto_select_model = self.auto_model.isChecked()
+        self.settings.recognition.device = self.device_combo.currentData()
+        self.settings.recognition.compute_type = self.compute_type_combo.currentData()
+        self.settings.recognition.auto_install_cuda_runtime = (
+            self.auto_install_cuda_runtime.isChecked()
+        )
         self.settings.recognition.hf_token = self.hf_token.text().strip() or None
         self.settings.recognition.dry_run = self.dry_run.isChecked()
         self.settings.storage.autosave_seconds = self.autosave_seconds.value()
@@ -94,6 +105,24 @@ class SettingsDialog(QDialog):
             self.model_combo.addItem(model, model)
         self._select_data(self.model_combo, self.settings.recognition.model_size or "base")
         self.auto_model.setChecked(self.settings.recognition.auto_select_model)
+
+        for device, label in (("auto", "Auto"), ("cpu", "CPU"), ("cuda", "CUDA GPU")):
+            self.device_combo.addItem(label, device)
+        self._select_data(self.device_combo, self.settings.recognition.device)
+
+        for compute_type, label in (
+            ("auto", "Auto"),
+            ("int8", "int8"),
+            ("int8_float16", "int8_float16"),
+            ("float16", "float16"),
+            ("float32", "float32"),
+        ):
+            self.compute_type_combo.addItem(label, compute_type)
+        self._select_data(self.compute_type_combo, self.settings.recognition.compute_type)
+        self.auto_install_cuda_runtime.setChecked(
+            self.settings.recognition.auto_install_cuda_runtime
+        )
+
         self.hf_token.setEchoMode(QLineEdit.Password)
         self.hf_token.setPlaceholderText("Optional token for model downloads")
         self.hf_token.setText(self.settings.recognition.hf_token or "")

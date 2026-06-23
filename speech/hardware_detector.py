@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import platform
+import subprocess
+import json
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -56,19 +58,19 @@ class HardwareDetector:
 
     def _detect_gpus(self) -> list[GpuInfo]:
         gpus: list[GpuInfo] = []
-        cuda_available = self._torch_cuda_available()
 
         try:
             import GPUtil
 
             for gpu in GPUtil.getGPUs():
                 name = gpu.name or "Unknown GPU"
+                is_nvidia = "nvidia" in name.lower()
                 gpus.append(
                     GpuInfo(
                         name=name,
                         vram_gb=float(gpu.memoryTotal) / 1024,
-                        is_nvidia="nvidia" in name.lower(),
-                        cuda_available=cuda_available and "nvidia" in name.lower(),
+                        is_nvidia=is_nvidia,
+                        cuda_available=is_nvidia,
                         directml_available=self._directml_available(),
                     )
                 )
@@ -76,10 +78,14 @@ class HardwareDetector:
             logger.info("GPUtil detection unavailable: %s", exc)
 
         if not gpus:
-            gpus.extend(self._detect_nvidia_with_nvml(cuda_available))
+            gpus.extend(self._detect_nvidia_with_nvml())
+        if not gpus:
+            gpus.extend(self._detect_nvidia_with_nvidia_smi())
+        if not gpus:
+            gpus.extend(self._detect_nvidia_with_windows_cim())
         return gpus
 
-    def _detect_nvidia_with_nvml(self, cuda_available: bool) -> list[GpuInfo]:
+    def _detect_nvidia_with_nvml(self) -> list[GpuInfo]:
         try:
             import pynvml
 
@@ -95,7 +101,7 @@ class HardwareDetector:
                         name=name,
                         vram_gb=mem.total / (1024**3),
                         is_nvidia=True,
-                        cuda_available=cuda_available,
+                        cuda_available=True,
                         directml_available=self._directml_available(),
                     )
                 )
@@ -105,13 +111,99 @@ class HardwareDetector:
             logger.info("NVML detection unavailable: %s", exc)
             return []
 
-    def _torch_cuda_available(self) -> bool:
+    def _detect_nvidia_with_nvidia_smi(self) -> list[GpuInfo]:
         try:
-            import torch
+            completed = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=name,memory.total",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+        except Exception as exc:
+            logger.info("nvidia-smi detection unavailable: %s", exc)
+            return []
+        if completed.returncode != 0:
+            logger.info("nvidia-smi detection unavailable: %s", completed.stderr.strip())
+            return []
 
-            return bool(torch.cuda.is_available())
-        except Exception:
-            return False
+        gpus = []
+        for line in completed.stdout.splitlines():
+            parts = [part.strip() for part in line.split(",", 1)]
+            if len(parts) != 2:
+                continue
+            name, memory_mb = parts
+            try:
+                vram_gb = float(memory_mb) / 1024
+            except ValueError:
+                vram_gb = 0.0
+            gpus.append(
+                GpuInfo(
+                    name=name or "NVIDIA GPU",
+                    vram_gb=vram_gb,
+                    is_nvidia=True,
+                    cuda_available=True,
+                    directml_available=self._directml_available(),
+                )
+            )
+        return gpus
+
+    def _detect_nvidia_with_windows_cim(self) -> list[GpuInfo]:
+        if platform.system() != "Windows":
+            return []
+        try:
+            completed = subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-Command",
+                    (
+                        "Get-CimInstance Win32_VideoController | "
+                        "Select-Object -Property Name,AdapterRAM | ConvertTo-Json -Compress"
+                    ),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+        except Exception as exc:
+            logger.info("Windows GPU detection unavailable: %s", exc)
+            return []
+        if completed.returncode != 0 or not completed.stdout.strip():
+            logger.info("Windows GPU detection unavailable: %s", completed.stderr.strip())
+            return []
+
+        try:
+            payload = json.loads(completed.stdout)
+        except json.JSONDecodeError as exc:
+            logger.info("Windows GPU detection returned invalid JSON: %s", exc)
+            return []
+
+        items = payload if isinstance(payload, list) else [payload]
+        gpus = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("Name", "")).strip()
+            if "nvidia" not in name.lower():
+                continue
+            adapter_ram = item.get("AdapterRAM", 0)
+            vram_gb = float(adapter_ram) / (1024**3) if isinstance(adapter_ram, int | float) else 0.0
+            gpus.append(
+                GpuInfo(
+                    name=name or "NVIDIA GPU",
+                    vram_gb=vram_gb,
+                    is_nvidia=True,
+                    cuda_available=True,
+                    directml_available=self._directml_available(),
+                )
+            )
+        return gpus
 
     def _directml_available(self) -> bool:
         try:

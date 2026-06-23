@@ -12,6 +12,7 @@ from core.atomic_write import write_text_atomic
 SAMPLE_RATES = {8000, 16000, 22050, 44100, 48000}
 MODEL_SIZES = {"tiny", "base", "small", "medium", "large-v3"}
 LANGUAGES = {"", "ru", "en"}
+DEVICE_MODES = {"auto", "cpu", "cuda"}
 COMPUTE_TYPES = {"auto", "int8", "int8_float16", "float16", "float32"}
 
 
@@ -28,7 +29,9 @@ class RecognitionSettings:
     language: str = "ru"
     model_size: str | None = None
     auto_select_model: bool = True
+    device: str = "auto"
     compute_type: str = "auto"
+    auto_install_cuda_runtime: bool = True
     hf_token: str | None = None
     dry_run: bool = False
 
@@ -166,10 +169,19 @@ def _normalize_settings(settings: AppSettings) -> AppSettings:
                 settings.recognition.auto_select_model,
                 recognition_defaults.auto_select_model,
             ),
+            device=_choice(
+                settings.recognition.device,
+                recognition_defaults.device,
+                DEVICE_MODES,
+            ),
             compute_type=_choice(
                 settings.recognition.compute_type,
                 recognition_defaults.compute_type,
                 COMPUTE_TYPES,
+            ),
+            auto_install_cuda_runtime=_bool(
+                settings.recognition.auto_install_cuda_runtime,
+                recognition_defaults.auto_install_cuda_runtime,
             ),
             hf_token=_optional_non_empty_string(
                 settings.recognition.hf_token,

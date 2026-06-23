@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
+from core.cuda_runtime import configure_cuda_dll_paths, install_cuda_runtime_packages
 from speech.hardware_detector import HardwareDetector, HardwareInfo, choose_model
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,7 @@ _PROXY_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "http
 _NO_PROXY_ENV_VARS = ("NO_PROXY", "no_proxy")
 _HF_TOKEN_ENV_VAR = "HF_TOKEN"
 _SUPPORTED_PROXY_SCHEMES = {"http", "https", "socks5", "socks5h"}
+_CUDA_ERROR_MARKERS = ("cuda", "cublas", "cudnn", "nvidia")
 
 
 def _env_identity(name: str) -> str:
@@ -111,11 +113,17 @@ class ModelManager:
         self.models_dir = models_dir
         self.detector = HardwareDetector()
 
-    def select(self, configured_model: str | None = None, auto_select: bool = True) -> ModelSelection:
+    def select(
+        self,
+        configured_model: str | None = None,
+        auto_select: bool = True,
+        device_mode: str = "auto",
+        configured_compute_type: str = "auto",
+    ) -> ModelSelection:
         hardware = self.detector.detect()
         model_size = choose_model(hardware) if auto_select or not configured_model else configured_model
-        device = "cuda" if hardware.cuda_available else "cpu"
-        compute_type = "float16" if device == "cuda" else "int8"
+        device = _select_device(device_mode, hardware)
+        compute_type = _select_compute_type(configured_compute_type, device)
         selection = ModelSelection(model_size, device, compute_type, hardware)
         logger.info("Selected model: %s", selection)
         return selection
@@ -125,6 +133,8 @@ class ModelManager:
         selection: ModelSelection,
         progress: callable | None = None,
         hf_token: str | None = None,
+        auto_install_cuda_runtime: bool = True,
+        allow_cpu_fallback: bool = True,
     ):
         try:
             from faster_whisper import WhisperModel
@@ -137,18 +147,102 @@ class ModelManager:
             progress(f"Loading model {selection.model_size}...")
 
         try:
-            with _model_download_env(progress, hf_token):
-                return WhisperModel(
-                    selection.model_size,
-                    device=selection.device,
-                    compute_type=selection.compute_type,
-                    download_root=str(self.models_dir),
+            return self._create_model(
+                WhisperModel,
+                selection,
+                progress,
+                hf_token,
+                auto_install_cuda_runtime,
+            )
+        except Exception as exc:
+            if _is_proxy_scheme_error(exc):
+                raise _proxy_scheme_runtime_error() from exc
+            if not _should_fallback_to_cpu(exc, selection.device, allow_cpu_fallback):
+                raise
+            logger.warning("CUDA model loading failed; falling back to CPU int8", exc_info=True)
+            if progress:
+                progress("CUDA unavailable; falling back to CPU int8")
+            cpu_selection = ModelSelection(
+                model_size=selection.model_size,
+                device="cpu",
+                compute_type="int8",
+                hardware=selection.hardware,
+            )
+            try:
+                return self._create_model(
+                    WhisperModel,
+                    cpu_selection,
+                    progress,
+                    hf_token,
+                    auto_install_cuda_runtime=False,
                 )
-        except ValueError as exc:
-            if "Unknown scheme for proxy URL" in str(exc):
-                raise RuntimeError(
-                    "Model download failed because the system proxy uses an unsupported scheme. "
-                    "Use http://, https://, socks5://, or socks5h:// for proxy environment "
-                    "variables, or clear them before starting the app."
-                ) from exc
-            raise
+            except Exception as fallback_exc:
+                if _is_proxy_scheme_error(fallback_exc):
+                    raise _proxy_scheme_runtime_error() from fallback_exc
+                raise
+
+    def _create_model(
+        self,
+        model_class,
+        selection: ModelSelection,
+        progress: callable | None,
+        hf_token: str | None,
+        auto_install_cuda_runtime: bool,
+    ):
+        if selection.device == "cuda":
+            _prepare_cuda_runtime(auto_install_cuda_runtime, progress)
+        with _model_download_env(progress, hf_token):
+            return model_class(
+                selection.model_size,
+                device=selection.device,
+                compute_type=selection.compute_type,
+                download_root=str(self.models_dir),
+            )
+
+
+def _select_device(device_mode: str, hardware: HardwareInfo) -> str:
+    if device_mode == "cpu":
+        return "cpu"
+    if device_mode == "cuda":
+        return "cuda"
+    return "cuda" if hardware.cuda_available else "cpu"
+
+
+def _select_compute_type(configured_compute_type: str, device: str) -> str:
+    if configured_compute_type != "auto":
+        return configured_compute_type
+    return "float16" if device == "cuda" else "int8"
+
+
+def _prepare_cuda_runtime(auto_install: bool, progress: callable | None = None) -> None:
+    cuda_status = configure_cuda_dll_paths()
+    if not cuda_status.is_ready and auto_install:
+        if progress:
+            progress("Installing missing CUDA runtime packages...")
+        completed = install_cuda_runtime_packages()
+        if completed.returncode != 0:
+            details = completed.stderr.strip() or completed.stdout.strip()
+            raise RuntimeError(f"Could not install CUDA runtime packages: {details}")
+        cuda_status = configure_cuda_dll_paths()
+    if not cuda_status.is_ready:
+        missing = ", ".join(cuda_status.missing_dlls)
+        raise RuntimeError(f"Missing CUDA runtime DLLs: {missing}")
+
+
+def _should_fallback_to_cpu(exc: Exception, device: str, allow_cpu_fallback: bool) -> bool:
+    if not allow_cpu_fallback or device != "cuda":
+        return False
+    message = str(exc).lower()
+    return any(marker in message for marker in _CUDA_ERROR_MARKERS)
+
+
+def _is_proxy_scheme_error(exc: Exception) -> bool:
+    return isinstance(exc, ValueError) and "Unknown scheme for proxy URL" in str(exc)
+
+
+def _proxy_scheme_runtime_error() -> RuntimeError:
+    return RuntimeError(
+        "Model download failed because the system proxy uses an unsupported scheme. "
+        "Use http://, https://, socks5://, or socks5h:// for proxy environment "
+        "variables, or clear them before starting the app."
+    )

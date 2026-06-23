@@ -16,6 +16,8 @@ dependencies = [
 gpu = [
     "GPUtil>=1.4",
     "nvidia-ml-py>=12.535",
+    "nvidia-cublas-cu12",
+    "nvidia-cudnn-cu12==9.*",
     "torch>=2.3",
 ]
 dev = [

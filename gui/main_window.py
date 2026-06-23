@@ -59,12 +59,16 @@ class ModelLoader(QObject):
             selection = self.manager.select(
                 self.settings.recognition.model_size,
                 self.settings.recognition.auto_select_model,
+                self.settings.recognition.device,
+                self.settings.recognition.compute_type,
             )
             self.status.emit(f"Loading {selection.model_size} on {selection.device}")
             model = self.manager.ensure_model(
                 selection,
                 self.status.emit,
                 self.settings.recognition.hf_token,
+                self.settings.recognition.auto_install_cuda_runtime,
+                self.settings.recognition.device == "auto",
             )
             self.loaded.emit(model, selection)
         except Exception as exc:
@@ -302,6 +306,9 @@ class MainWindow(QMainWindow):
         previous_dry_run = self.settings.recognition.dry_run
         previous_model = self.settings.recognition.model_size
         previous_auto = self.settings.recognition.auto_select_model
+        previous_device = self.settings.recognition.device
+        previous_compute_type = self.settings.recognition.compute_type
+        previous_cuda_runtime = self.settings.recognition.auto_install_cuda_runtime
         previous_hf_token = self.settings.recognition.hf_token
         dialog = SettingsDialog(self.settings, list_audio_devices(), self)
         if dialog.exec():
@@ -313,6 +320,9 @@ class MainWindow(QMainWindow):
                 previous_dry_run != self.settings.recognition.dry_run
                 or previous_model != self.settings.recognition.model_size
                 or previous_auto != self.settings.recognition.auto_select_model
+                or previous_device != self.settings.recognition.device
+                or previous_compute_type != self.settings.recognition.compute_type
+                or previous_cuda_runtime != self.settings.recognition.auto_install_cuda_runtime
                 or previous_hf_token != self.settings.recognition.hf_token
             )
             if recognition_changed:

@@ -102,6 +102,18 @@ The app can download public Whisper models from Hugging Face without a token. Se
 You can enter the token in `Settings` under `Hugging Face token`; it is used for
 model downloads.
 
+## GPU Acceleration
+
+Open `Settings` and choose `CUDA GPU` under `Device` to force NVIDIA GPU mode, or keep
+`Auto` to use CUDA when an NVIDIA GPU is detected and fall back to CPU if CUDA cannot
+be loaded. `Compute type` can stay on `Auto`: the app uses `float16` on CUDA and `int8`
+on CPU.
+
+GPU mode needs NVIDIA CUDA runtime DLLs used by CTranslate2. Normal setup installs the
+GPU extras unless you run setup with `-CpuOnly`. If the DLLs are still missing, keep
+`Auto-install missing CUDA runtime` enabled in `Settings`; the app will try to install
+the required NVIDIA runtime wheels before loading the Whisper model.
+
 ## Test Mode
 
 Open `Settings` and enable `Use test transcript engine` to test the GUI, audio routing,
