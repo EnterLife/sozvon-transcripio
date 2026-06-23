@@ -95,6 +95,11 @@ python app.py
 
 Application data is stored in `%APPDATA%\RealtimeCallTranscriber`.
 
+## Model Downloads
+
+The app can download public Whisper models from Hugging Face without a token. Set
+`HF_TOKEN` only if you need higher Hugging Face rate limits or faster downloads.
+
 ## Test Mode
 
 Open `Settings` and enable `Use test transcript engine` to test the GUI, audio routing,
