@@ -29,6 +29,7 @@ from audio.devices import (
 )
 from audio.loopback_capture import LoopbackCapture
 from audio.microphone_capture import MicrophoneCapture
+from audio.types import AudioSource
 from config.settings import AppSettings, load_settings, save_settings
 from core.atomic_write import write_text_atomic
 from core.paths import AppPaths
@@ -178,7 +179,7 @@ class MainWindow(QMainWindow):
         self.clear_button.clicked.connect(self._clear_session)
         self.transcript_event.connect(self._on_transcript_event)
         self.worker_error.connect(self._show_error)
-        self.capture_status.connect(self._set_status)
+        self.capture_status.connect(self._on_capture_status)
 
     def _apply_default_devices(self) -> None:
         if self.settings.audio.microphone_device is None:
@@ -339,13 +340,30 @@ class MainWindow(QMainWindow):
     @Slot(str)
     def _show_error(self, message: str) -> None:
         logger.error(message)
+        self._mark_source_failed(message)
         self._append_status("ERROR", message)
         QMessageBox.warning(self, "Realtime Call Transcriber", message)
+
+    @Slot(str)
+    def _on_capture_status(self, message: str) -> None:
+        self._set_status(message)
+        source, state = _parse_capture_status(message)
+        if source is AudioSource.USER_MIC:
+            self.mic_label.setText(f"Mic: {state}")
+        elif source is AudioSource.REMOTE_AUDIO:
+            self.loopback_label.setText(f"System audio: {state}")
 
     @Slot(str)
     def _set_status(self, message: str) -> None:
         self.statusBar().showMessage(message)
         self._append_status("INFO", message)
+
+    def _mark_source_failed(self, message: str) -> None:
+        lowered = message.lower()
+        if "loopback" in lowered or "wasapi" in lowered or "remote_audio" in lowered:
+            self.loopback_label.setText("System audio: failed")
+        if "microphone" in lowered or "user_mic" in lowered:
+            self.mic_label.setText("Mic: failed")
 
     def _append_status(self, level: str, message: str) -> None:
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -382,3 +400,15 @@ class MainWindow(QMainWindow):
         self.transcript.clear()
         self._save_transcript()
         self._set_status("Transcript cleared")
+
+
+def _parse_capture_status(message: str) -> tuple[AudioSource | None, str]:
+    source_text, separator, state_text = message.partition(":")
+    if not separator:
+        return None, "idle"
+    try:
+        source = AudioSource(source_text.strip())
+    except ValueError:
+        return None, state_text.strip() or "idle"
+    state = state_text.strip() or "idle"
+    return source, state

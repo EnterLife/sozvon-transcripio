@@ -1,10 +1,15 @@
 from types import SimpleNamespace
+import sys
+
+import numpy as np
 
 from audio.capture_base import (
+    SoundDeviceCapture,
     _select_soundcard_loopback_microphone,
     _sounddevice_output_name,
     _sounddevice_wasapi_supports_loopback,
 )
+from audio.types import AudioSource
 
 
 def test_sounddevice_wasapi_loopback_support_detection() -> None:
@@ -53,3 +58,66 @@ def test_select_soundcard_loopback_falls_back_to_name_match() -> None:
     )
 
     assert _select_soundcard_loopback_microphone(sc, "Speakers") is selected
+
+
+def test_push_samples_converts_stereo_float_to_mono_pcm() -> None:
+    chunks = []
+    capture = SoundDeviceCapture(
+        AudioSource.REMOTE_AUDIO,
+        device_index=None,
+        sample_rate=16_000,
+        chunk_seconds=1.0,
+        on_chunk=chunks.append,
+    )
+    samples = np.array([[1.0, -1.0], [0.5, 0.5]], dtype=np.float32)
+
+    capture._push_samples(samples, timestamp=123.0)
+
+    assert len(chunks) == 1
+    chunk = chunks[0]
+    assert chunk.source is AudioSource.REMOTE_AUDIO
+    assert chunk.timestamp == 123.0
+    assert chunk.sample_rate == 16_000
+    assert np.frombuffer(chunk.pcm, dtype=np.int16).tolist() == [0, 16383]
+
+
+def test_soundcard_loopback_failure_does_not_emit_stopped_after_failed(monkeypatch) -> None:
+    statuses = []
+    errors = []
+    microphone = SimpleNamespace(
+        name="Speakers",
+        channels=2,
+        isloopback=True,
+        recorder=lambda **_kwargs: FailingRecorder(),
+    )
+    soundcard = SimpleNamespace(
+        all_microphones=lambda include_loopback: [microphone],
+        get_microphone=lambda id, include_loopback: microphone,
+    )
+    sd = SimpleNamespace(query_devices=lambda _index: {"name": "Speakers"})
+    monkeypatch.setitem(sys.modules, "soundcard", soundcard)
+    capture = SoundDeviceCapture(
+        AudioSource.REMOTE_AUDIO,
+        device_index=8,
+        sample_rate=16_000,
+        chunk_seconds=1.0,
+        on_chunk=lambda _chunk: None,
+        on_error=errors.append,
+        on_status=statuses.append,
+    )
+
+    capture._run_soundcard_loopback(sd, blocksize=1600)
+
+    assert statuses == ["REMOTE_AUDIO: started", "REMOTE_AUDIO: failed"]
+    assert errors == ["Loopback capture failed for REMOTE_AUDIO. Check the selected output device."]
+
+
+class FailingRecorder:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def record(self, numframes):
+        raise RuntimeError("device lost")

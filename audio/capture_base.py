@@ -90,20 +90,12 @@ class SoundDeviceCapture:
         def callback(indata, frames, callback_time, status) -> None:
             if status:
                 logger.warning("Audio status for %s: %s", self.source, status)
-            mono = np.asarray(indata, dtype=np.float32)
-            if mono.ndim > 1:
-                mono = mono.mean(axis=1)
-            mono = np.clip(mono, -1.0, 1.0)
-            pcm = (mono * 32767).astype(np.int16).tobytes()
-            self.on_chunk(
-                AudioChunk(
-                    source=self.source,
-                    timestamp=float(getattr(callback_time, "inputBufferAdcTime", time.time())),
-                    sample_rate=self.sample_rate,
-                    pcm=pcm,
-                )
+            self._push_samples(
+                indata,
+                float(getattr(callback_time, "inputBufferAdcTime", time.time())),
             )
 
+        failed = False
         try:
             with sd.InputStream(
                 device=self.device_index,
@@ -117,10 +109,11 @@ class SoundDeviceCapture:
                 while not self._stop.is_set():
                     time.sleep(0.1)
         except Exception:
+            failed = True
             logger.exception("Capture failed for %s", self.source)
             self._fail(f"Capture failed for {self.source}. Check the selected audio device.")
         finally:
-            if self.on_status:
+            if self.on_status and not failed:
                 self.on_status(f"{self.source}: stopped")
 
     def _run_soundcard_loopback(self, sd, blocksize: int) -> None:
@@ -147,6 +140,7 @@ class SoundDeviceCapture:
         if self.on_status:
             self.on_status(f"{self.source}: started")
 
+        failed = False
         try:
             with microphone.recorder(
                 samplerate=self.sample_rate,
@@ -157,10 +151,11 @@ class SoundDeviceCapture:
                     data = recorder.record(numframes=blocksize)
                     self._push_samples(data, time.time())
         except Exception:
+            failed = True
             logger.exception("Loopback capture failed for %s", self.source)
             self._fail(f"Loopback capture failed for {self.source}. Check the selected output device.")
         finally:
-            if self.on_status:
+            if self.on_status and not failed:
                 self.on_status(f"{self.source}: stopped")
 
     def _push_samples(self, samples, timestamp: float) -> None:
@@ -180,6 +175,8 @@ class SoundDeviceCapture:
 
     def _fail(self, message: str) -> None:
         logger.error(message)
+        if self.on_status:
+            self.on_status(f"{self.source}: failed")
         if self.on_error:
             self.on_error(message)
 
