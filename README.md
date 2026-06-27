@@ -13,6 +13,8 @@ Implemented MVP foundation:
 - Hardware detection and automatic Whisper model selection.
 - Local `faster-whisper` transcription.
 - Buffered recognition windows to reduce phrase cuts during real-time capture.
+- Local CTranslate2 model folder selection and offline-only mode.
+- Manual model calibration to pick the highest-quality model that keeps up in real time.
 - Transcript autosave to TXT and JSON.
 - Export to TXT, Markdown, and JSON.
 - Settings dialog with audio, recognition, test mode, and storage options.
@@ -103,6 +105,15 @@ The app can download public Whisper models from Hugging Face without a token. Se
 `HF_TOKEN` only if you need higher Hugging Face rate limits or faster downloads.
 You can enter the token in `Settings` under `Hugging Face token`; it is used for
 model downloads.
+
+To use a fully local CTranslate2 model, open `Settings` and choose its folder under
+`Local model folder`. The folder must contain `model.bin`. Enable `Use local files only`
+to prevent model loading from using network downloads.
+
+Use `Calibrate` in the main window to benchmark available model sizes on the current
+computer. Calibration selects the highest-quality named model that stays within the
+real-time target. If a local model folder is selected, calibration benchmarks that
+local model and reports its real-time factor.
 
 ## GPU Acceleration
 

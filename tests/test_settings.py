@@ -8,12 +8,14 @@ def test_settings_roundtrip(tmp_path) -> None:
     settings.audio.chunk_seconds = 0.75
     settings.recognition.language = "en"
     settings.recognition.model_size = "small"
+    settings.recognition.local_model_path = "C:/models/faster-whisper-small"
     settings.recognition.auto_select_model = False
     settings.recognition.device = "cuda"
     settings.recognition.compute_type = "float16"
     settings.recognition.transcription_window_seconds = 4.5
     settings.recognition.auto_install_cuda_runtime = False
     settings.recognition.hf_token = "hf_test_token"
+    settings.recognition.offline_mode = True
     settings.recognition.dry_run = True
     settings.storage.autosave_seconds = 15
 
@@ -24,12 +26,14 @@ def test_settings_roundtrip(tmp_path) -> None:
     assert loaded.audio.chunk_seconds == 0.75
     assert loaded.recognition.language == "en"
     assert loaded.recognition.model_size == "small"
+    assert loaded.recognition.local_model_path == "C:/models/faster-whisper-small"
     assert loaded.recognition.auto_select_model is False
     assert loaded.recognition.device == "cuda"
     assert loaded.recognition.compute_type == "float16"
     assert loaded.recognition.transcription_window_seconds == 4.5
     assert loaded.recognition.auto_install_cuda_runtime is False
     assert loaded.recognition.hf_token == "hf_test_token"
+    assert loaded.recognition.offline_mode is True
     assert loaded.recognition.dry_run is True
     assert loaded.storage.autosave_seconds == 15
 
@@ -81,12 +85,14 @@ def test_invalid_setting_values_fall_back_or_clamp(tmp_path) -> None:
           "recognition": {
             "language": "de",
             "model_size": "huge",
+            "local_model_path": "   ",
             "auto_select_model": "yes",
             "device": "quantum",
             "compute_type": "surprise",
             "transcription_window_seconds": 99,
             "auto_install_cuda_runtime": "please",
             "hf_token": 123,
+            "offline_mode": "yes",
             "dry_run": 1
           },
           "storage": {
@@ -106,12 +112,14 @@ def test_invalid_setting_values_fall_back_or_clamp(tmp_path) -> None:
     assert settings.audio.chunk_seconds == 2.0
     assert settings.recognition.language == "ru"
     assert settings.recognition.model_size is None
+    assert settings.recognition.local_model_path is None
     assert settings.recognition.auto_select_model is True
     assert settings.recognition.device == "auto"
     assert settings.recognition.compute_type == "auto"
     assert settings.recognition.transcription_window_seconds == 8.0
     assert settings.recognition.auto_install_cuda_runtime is True
     assert settings.recognition.hf_token is None
+    assert settings.recognition.offline_mode is False
     assert settings.recognition.dry_run is False
     assert settings.storage.autosave_seconds == 5
     assert settings.storage.transcript_dir is None

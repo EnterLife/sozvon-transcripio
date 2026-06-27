@@ -36,7 +36,7 @@ from core.paths import AppPaths
 from gui.settings_dialog import SettingsDialog
 from gui.status import parse_capture_status
 from speech.mock_engine import MockTranscriptionEngine
-from speech.model_manager import ModelManager
+from speech.model_manager import CalibrationReport, ModelManager
 from speech.transcription_worker import TranscriptionWorker
 from speech.types import TranscriptEvent
 from speech.whisper_engine import WhisperEngine
@@ -64,18 +64,50 @@ class ModelLoader(QObject):
                 self.settings.recognition.auto_select_model,
                 self.settings.recognition.device,
                 self.settings.recognition.compute_type,
+                self.settings.recognition.local_model_path,
             )
-            self.status.emit(f"Loading {selection.model_size} on {selection.device}")
+            self.status.emit(f"Loading {selection.display_name} on {selection.device}")
             model = self.manager.ensure_model(
                 selection,
                 self.status.emit,
                 self.settings.recognition.hf_token,
                 self.settings.recognition.auto_install_cuda_runtime,
                 self.settings.recognition.device == "auto",
+                self.settings.recognition.offline_mode,
             )
             self.loaded.emit(model, selection)
         except Exception as exc:
             logger.exception("Model loading failed")
+            self.failed.emit(str(exc))
+
+
+class CalibrationLoader(QObject):
+    completed = Signal(object)
+    failed = Signal(str)
+    status = Signal(str)
+
+    def __init__(self, manager: ModelManager, settings: AppSettings) -> None:
+        super().__init__()
+        self.manager = manager
+        self.settings = settings
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            report = self.manager.calibrate(
+                self.settings.recognition.model_size,
+                self.settings.recognition.auto_select_model,
+                self.settings.recognition.device,
+                self.settings.recognition.compute_type,
+                self.settings.recognition.local_model_path,
+                self.status.emit,
+                self.settings.recognition.hf_token,
+                self.settings.recognition.auto_install_cuda_runtime,
+                self.settings.recognition.offline_mode,
+            )
+            self.completed.emit(report)
+        except Exception as exc:
+            logger.exception("Model calibration failed")
             self.failed.emit(str(exc))
 
 
@@ -124,6 +156,7 @@ class MainWindow(QMainWindow):
         self.new_session_button = QPushButton("New session")
         self.clear_button = QPushButton("Clear")
         self.open_folder_button = QPushButton("Open folder")
+        self.calibrate_button = QPushButton("Calibrate")
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(False)
 
@@ -166,6 +199,7 @@ class MainWindow(QMainWindow):
         controls.addWidget(self.new_session_button)
         controls.addWidget(self.clear_button)
         controls.addWidget(self.open_folder_button)
+        controls.addWidget(self.calibrate_button)
         controls.addStretch(1)
 
         layout = QVBoxLayout()
@@ -189,6 +223,7 @@ class MainWindow(QMainWindow):
         self.new_session_button.clicked.connect(self._new_session)
         self.clear_button.clicked.connect(self._clear_session)
         self.open_folder_button.clicked.connect(self._open_transcript_folder)
+        self.calibrate_button.clicked.connect(self._calibrate_model)
         self.transcript_event.connect(self._on_transcript_event)
         self.worker_error.connect(self._show_error)
         self.capture_status.connect(self._on_capture_status)
@@ -229,9 +264,12 @@ class MainWindow(QMainWindow):
     def _on_model_loaded(self, model, selection) -> None:
         self.model = model
         self.model_selection = selection
-        self.settings.recognition.model_size = selection.model_size
+        if selection.is_local_model:
+            self.settings.recognition.local_model_path = str(selection.local_model_path)
+        else:
+            self.settings.recognition.model_size = selection.model_size
         save_settings(self.paths.settings_file, self.settings)
-        self.model_label.setText(f"Model: {selection.model_size}")
+        self.model_label.setText(f"Model: {selection.display_name}")
         gpu_state = "CUDA" if selection.hardware.cuda_available else "CPU"
         self.gpu_label.setText(f"Acceleration: {gpu_state}")
         self._set_status("Ready")
@@ -324,12 +362,14 @@ class MainWindow(QMainWindow):
         previous_chunk_seconds = self.settings.audio.chunk_seconds
         previous_dry_run = self.settings.recognition.dry_run
         previous_model = self.settings.recognition.model_size
+        previous_local_model_path = self.settings.recognition.local_model_path
         previous_auto = self.settings.recognition.auto_select_model
         previous_device = self.settings.recognition.device
         previous_compute_type = self.settings.recognition.compute_type
         previous_transcription_window = self.settings.recognition.transcription_window_seconds
         previous_cuda_runtime = self.settings.recognition.auto_install_cuda_runtime
         previous_hf_token = self.settings.recognition.hf_token
+        previous_offline_mode = self.settings.recognition.offline_mode
         previous_transcript_dir = self.store.directory
         dialog = SettingsDialog(self.settings, list_audio_devices(), self)
         if dialog.exec():
@@ -351,11 +391,13 @@ class MainWindow(QMainWindow):
             recognition_changed = (
                 previous_dry_run != self.settings.recognition.dry_run
                 or previous_model != self.settings.recognition.model_size
+                or previous_local_model_path != self.settings.recognition.local_model_path
                 or previous_auto != self.settings.recognition.auto_select_model
                 or previous_device != self.settings.recognition.device
                 or previous_compute_type != self.settings.recognition.compute_type
                 or previous_cuda_runtime != self.settings.recognition.auto_install_cuda_runtime
                 or previous_hf_token != self.settings.recognition.hf_token
+                or previous_offline_mode != self.settings.recognition.offline_mode
             )
             capture_settings_changed = (
                 previous_microphone != self.settings.audio.microphone_device
@@ -469,3 +511,53 @@ class MainWindow(QMainWindow):
 
     def _refresh_session_label(self) -> None:
         self.save_path_label.setText(f"Autosave: {self.store.txt_path}")
+
+    def _calibrate_model(self) -> None:
+        if self.settings.recognition.dry_run:
+            self._show_error("Calibration is unavailable in test mode.")
+            return
+        self._stop()
+        self.start_button.setEnabled(False)
+        self.calibrate_button.setEnabled(False)
+        self.model_label.setText("Model: calibrating")
+        self.calibration_thread = QThread(self)
+        self.calibration_loader = CalibrationLoader(ModelManager(self.paths.models_dir), self.settings)
+        self.calibration_loader.moveToThread(self.calibration_thread)
+        self.calibration_thread.started.connect(self.calibration_loader.run)
+        self.calibration_loader.completed.connect(self._on_calibration_completed)
+        self.calibration_loader.failed.connect(self._on_calibration_failed)
+        self.calibration_loader.status.connect(self._set_status)
+        self.calibration_loader.completed.connect(self.calibration_thread.quit)
+        self.calibration_loader.failed.connect(self.calibration_thread.quit)
+        self.calibration_thread.finished.connect(lambda: self.calibrate_button.setEnabled(True))
+        self.calibration_thread.start()
+
+    @Slot(object)
+    def _on_calibration_completed(self, report: CalibrationReport) -> None:
+        selected = report.selected
+        if selected is None:
+            self.model_label.setText("Model: calibration failed")
+            self._show_error("Calibration did not find a usable model.")
+            return
+        result_lines = [
+            f"{result.model_size}: RTF {result.realtime_factor:.2f}"
+            for result in report.results
+            if result.error is None
+        ]
+        if self.settings.recognition.local_model_path is None:
+            self.settings.recognition.model_size = selected.model_size
+            self.settings.recognition.auto_select_model = False
+            save_settings(self.paths.settings_file, self.settings)
+            self._set_status(f"Calibration selected {selected.model_size}")
+            self._prepare_recognition()
+        else:
+            self._set_status(f"Local model RTF {selected.realtime_factor:.2f}")
+            self._prepare_recognition()
+        if result_lines:
+            self._append_status("INFO", "Calibration results: " + "; ".join(result_lines))
+
+    @Slot(str)
+    def _on_calibration_failed(self, message: str) -> None:
+        self.model_label.setText("Model: calibration failed")
+        self.start_button.setEnabled(self.model is not None)
+        self._show_error(message)

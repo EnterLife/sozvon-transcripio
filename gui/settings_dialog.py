@@ -30,12 +30,15 @@ class SettingsDialog(QDialog):
         self.loopback_combo = QComboBox()
         self.language_combo = QComboBox()
         self.model_combo = QComboBox()
+        self.local_model_path = QLineEdit()
+        self.browse_model_button = QPushButton("Browse")
         self.auto_model = QCheckBox("Auto-select")
         self.device_combo = QComboBox()
         self.compute_type_combo = QComboBox()
         self.transcription_window_seconds = QDoubleSpinBox()
         self.auto_install_cuda_runtime = QCheckBox("Auto-install missing CUDA runtime")
         self.hf_token = QLineEdit()
+        self.offline_mode = QCheckBox("Use local files only")
         self.dry_run = QCheckBox("Use test transcript engine")
         self.sample_rate = QComboBox()
         self.chunk_seconds = QDoubleSpinBox()
@@ -50,12 +53,17 @@ class SettingsDialog(QDialog):
         form.addRow("Output / loopback", self.loopback_combo)
         form.addRow("Language", self.language_combo)
         form.addRow("Model", self.model_combo)
+        model_path_layout = QHBoxLayout()
+        model_path_layout.addWidget(self.local_model_path)
+        model_path_layout.addWidget(self.browse_model_button)
+        form.addRow("Local model folder", model_path_layout)
         form.addRow("Model selection", self.auto_model)
         form.addRow("Device", self.device_combo)
         form.addRow("Compute type", self.compute_type_combo)
         form.addRow("Recognition window seconds", self.transcription_window_seconds)
         form.addRow("GPU runtime", self.auto_install_cuda_runtime)
         form.addRow("Hugging Face token", self.hf_token)
+        form.addRow("Offline mode", self.offline_mode)
         form.addRow("Test mode", self.dry_run)
         form.addRow("Sample rate", self.sample_rate)
         form.addRow("Chunk seconds", self.chunk_seconds)
@@ -74,6 +82,7 @@ class SettingsDialog(QDialog):
         layout.addLayout(form)
         layout.addWidget(buttons)
         self.browse_button.clicked.connect(self._browse_transcript_dir)
+        self.browse_model_button.clicked.connect(self._browse_local_model_dir)
         self.auto_model.toggled.connect(self._update_model_enabled)
 
     def accept(self) -> None:
@@ -83,6 +92,7 @@ class SettingsDialog(QDialog):
         self.settings.audio.chunk_seconds = self.chunk_seconds.value()
         self.settings.recognition.language = self.language_combo.currentData()
         self.settings.recognition.model_size = self.model_combo.currentData()
+        self.settings.recognition.local_model_path = self.local_model_path.text().strip() or None
         self.settings.recognition.auto_select_model = self.auto_model.isChecked()
         self.settings.recognition.device = self.device_combo.currentData()
         self.settings.recognition.compute_type = self.compute_type_combo.currentData()
@@ -93,6 +103,7 @@ class SettingsDialog(QDialog):
             self.auto_install_cuda_runtime.isChecked()
         )
         self.settings.recognition.hf_token = self.hf_token.text().strip() or None
+        self.settings.recognition.offline_mode = self.offline_mode.isChecked()
         self.settings.recognition.dry_run = self.dry_run.isChecked()
         self.settings.storage.autosave_seconds = self.autosave_seconds.value()
         self.settings.storage.transcript_dir = self.transcript_dir.text().strip() or None
@@ -109,6 +120,8 @@ class SettingsDialog(QDialog):
         for model in ("tiny", "base", "small", "medium", "large-v3"):
             self.model_combo.addItem(model, model)
         self._select_data(self.model_combo, self.settings.recognition.model_size or "base")
+        self.local_model_path.setPlaceholderText("Optional CTranslate2 model folder")
+        self.local_model_path.setText(self.settings.recognition.local_model_path or "")
         self.auto_model.setChecked(self.settings.recognition.auto_select_model)
 
         for device, label in (("auto", "Auto"), ("cpu", "CPU"), ("cuda", "CUDA GPU")):
@@ -138,6 +151,7 @@ class SettingsDialog(QDialog):
         self.hf_token.setEchoMode(QLineEdit.Password)
         self.hf_token.setPlaceholderText("Optional token for model downloads")
         self.hf_token.setText(self.settings.recognition.hf_token or "")
+        self.offline_mode.setChecked(self.settings.recognition.offline_mode)
         self.dry_run.setChecked(self.settings.recognition.dry_run)
         self._update_model_enabled()
 
@@ -182,6 +196,15 @@ class SettingsDialog(QDialog):
         )
         if directory:
             self.transcript_dir.setText(directory)
+
+    def _browse_local_model_dir(self) -> None:
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "Local model folder",
+            self.local_model_path.text() or "",
+        )
+        if directory:
+            self.local_model_path.setText(directory)
 
     def _update_model_enabled(self) -> None:
         self.model_combo.setEnabled(not self.auto_model.isChecked())

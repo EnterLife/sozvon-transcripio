@@ -28,12 +28,14 @@ class AudioSettings:
 class RecognitionSettings:
     language: str = "ru"
     model_size: str | None = None
+    local_model_path: str | None = None
     auto_select_model: bool = True
     device: str = "auto"
     compute_type: str = "auto"
     transcription_window_seconds: float = 3.0
     auto_install_cuda_runtime: bool = True
     hf_token: str | None = None
+    offline_mode: bool = False
     dry_run: bool = False
 
 
@@ -166,6 +168,10 @@ def _normalize_settings(settings: AppSettings) -> AppSettings:
                 recognition_defaults.model_size,
                 MODEL_SIZES,
             ),
+            local_model_path=_optional_non_empty_string(
+                settings.recognition.local_model_path,
+                recognition_defaults.local_model_path,
+            ),
             auto_select_model=_bool(
                 settings.recognition.auto_select_model,
                 recognition_defaults.auto_select_model,
@@ -193,6 +199,10 @@ def _normalize_settings(settings: AppSettings) -> AppSettings:
             hf_token=_optional_non_empty_string(
                 settings.recognition.hf_token,
                 recognition_defaults.hf_token,
+            ),
+            offline_mode=_bool(
+                settings.recognition.offline_mode,
+                recognition_defaults.offline_mode,
             ),
             dry_run=_bool(settings.recognition.dry_run, recognition_defaults.dry_run),
         ),

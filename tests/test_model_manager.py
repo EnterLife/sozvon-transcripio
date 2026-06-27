@@ -4,7 +4,13 @@ import types
 from pathlib import Path
 
 from speech.hardware_detector import GpuInfo, HardwareInfo
-from speech.model_manager import ModelManager, _model_download_env, _unsupported_proxy_env
+from speech.model_manager import (
+    CalibrationResult,
+    ModelManager,
+    _best_calibration_result,
+    _model_download_env,
+    _unsupported_proxy_env,
+)
 
 
 def hardware(cuda: bool = False) -> HardwareInfo:
@@ -137,6 +143,34 @@ def test_select_custom_compute_type_is_preserved(monkeypatch, tmp_path: Path) ->
     assert selection.compute_type == "float32"
 
 
+def test_select_local_model_path_takes_precedence(monkeypatch, tmp_path: Path) -> None:
+    model_path = tmp_path / "local-model"
+    model_path.mkdir()
+    (model_path / "model.bin").write_bytes(b"model")
+    manager = ModelManager(tmp_path)
+    monkeypatch.setattr(manager.detector, "detect", lambda: hardware(cuda=False))
+
+    selection = manager.select(local_model_path=str(model_path))
+
+    assert selection.is_local_model
+    assert selection.model_identifier == str(model_path.resolve())
+    assert selection.display_name == "local-model"
+
+
+def test_select_local_model_path_requires_model_bin(monkeypatch, tmp_path: Path) -> None:
+    model_path = tmp_path / "local-model"
+    model_path.mkdir()
+    manager = ModelManager(tmp_path)
+    monkeypatch.setattr(manager.detector, "detect", lambda: hardware(cuda=False))
+
+    try:
+        manager.select(local_model_path=str(model_path))
+    except RuntimeError as exc:
+        assert "model.bin" in str(exc)
+    else:
+        raise AssertionError("expected invalid local model folder to fail")
+
+
 def test_cuda_load_error_falls_back_to_cpu(monkeypatch, tmp_path: Path) -> None:
     created: list[tuple[str, str]] = []
 
@@ -168,6 +202,44 @@ def test_cuda_load_error_falls_back_to_cpu(monkeypatch, tmp_path: Path) -> None:
 
     assert isinstance(model, FakeWhisperModel)
     assert created == [("cuda", "float16"), ("cpu", "int8")]
+
+
+def test_ensure_model_passes_offline_local_files_only_when_supported(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    created = {}
+
+    class FakeWhisperModel:
+        def __init__(self, model_size, *, device, compute_type, download_root, local_files_only):
+            created["model_size"] = model_size
+            created["local_files_only"] = local_files_only
+            created["device"] = device
+            created["compute_type"] = compute_type
+            created["download_root"] = download_root
+
+    monkeypatch.setitem(
+        sys.modules,
+        "faster_whisper",
+        types.SimpleNamespace(WhisperModel=FakeWhisperModel),
+    )
+    monkeypatch.setattr("urllib.request.getproxies", lambda: {})
+
+    manager = ModelManager(tmp_path)
+    manager.ensure_model(
+        types.SimpleNamespace(
+            model_size="small",
+            model_identifier="small",
+            device="cpu",
+            compute_type="int8",
+            hardware=hardware(cuda=False),
+            is_local_model=False,
+        ),
+        offline_mode=True,
+    )
+
+    assert created["model_size"] == "small"
+    assert created["local_files_only"] is True
 
 
 def test_cuda_runtime_auto_install(monkeypatch, tmp_path: Path) -> None:
@@ -213,6 +285,76 @@ def test_cuda_runtime_auto_install(monkeypatch, tmp_path: Path) -> None:
 
     assert configure_calls == 2
     assert install_calls == 1
+
+
+def test_calibration_selects_highest_quality_realtime_candidate(monkeypatch, tmp_path: Path) -> None:
+    class FakeWhisperModel:
+        def __init__(self, model_size, **_kwargs) -> None:
+            self.model_size = model_size
+
+        def transcribe(self, *_args, **_kwargs):
+            return iter([types.SimpleNamespace(text="ok")]), None
+
+    elapsed_by_model = {"tiny": 0.1, "base": 0.2, "small": 4.0}
+
+    def fake_benchmark(model, _audio_seconds):
+        return elapsed_by_model[model.model_size]
+
+    monkeypatch.setitem(
+        sys.modules,
+        "faster_whisper",
+        types.SimpleNamespace(WhisperModel=FakeWhisperModel),
+    )
+    monkeypatch.setattr("speech.model_manager._benchmark_model", fake_benchmark)
+    monkeypatch.setattr("urllib.request.getproxies", lambda: {})
+    manager = ModelManager(tmp_path)
+    monkeypatch.setattr(manager.detector, "detect", lambda: hardware(cuda=True))
+
+    report = manager.calibrate(audio_seconds=1.0, max_realtime_factor=0.8)
+
+    assert [result.model_size for result in report.results] == ["tiny", "base", "small"]
+    assert report.selected is not None
+    assert report.selected.model_size == "base"
+
+
+def test_calibration_uses_local_model_path(monkeypatch, tmp_path: Path) -> None:
+    model_path = tmp_path / "local-model"
+    model_path.mkdir()
+    (model_path / "model.bin").write_bytes(b"model")
+    created = {}
+
+    class FakeWhisperModel:
+        def __init__(self, model_size, **_kwargs) -> None:
+            created["model_size"] = model_size
+            self.model_size = model_size
+
+        def transcribe(self, *_args, **_kwargs):
+            return iter([types.SimpleNamespace(text="ok")]), None
+
+    monkeypatch.setitem(
+        sys.modules,
+        "faster_whisper",
+        types.SimpleNamespace(WhisperModel=FakeWhisperModel),
+    )
+    monkeypatch.setattr("speech.model_manager._benchmark_model", lambda _model, _seconds: 0.2)
+    monkeypatch.setattr("urllib.request.getproxies", lambda: {})
+    manager = ModelManager(tmp_path)
+    monkeypatch.setattr(manager.detector, "detect", lambda: hardware(cuda=False))
+
+    report = manager.calibrate(local_model_path=str(model_path), audio_seconds=1.0)
+
+    assert created["model_size"] == str(model_path.resolve())
+    assert report.selected is not None
+    assert report.selected.model_size == "local-model"
+
+
+def test_best_calibration_result_falls_back_to_fastest_usable_result() -> None:
+    results = [
+        CalibrationResult("small", "cpu", "int8", 1.0, 1.4, 1.4, False),
+        CalibrationResult("base", "cpu", "int8", 1.0, 0.9, 0.9, False),
+    ]
+
+    assert _best_calibration_result(results) is results[1]
 
 
 def _ready_cuda():

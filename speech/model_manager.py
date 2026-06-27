@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 import urllib.request
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -19,6 +20,7 @@ _NO_PROXY_ENV_VARS = ("NO_PROXY", "no_proxy")
 _HF_TOKEN_ENV_VAR = "HF_TOKEN"
 _SUPPORTED_PROXY_SCHEMES = {"http", "https", "socks5", "socks5h"}
 _CUDA_ERROR_MARKERS = ("cuda", "cublas", "cudnn", "nvidia")
+MODEL_QUALITY_ORDER = ("tiny", "base", "small", "medium", "large-v3")
 
 
 def _env_identity(name: str) -> str:
@@ -41,6 +43,41 @@ class ModelSelection:
     device: str
     compute_type: str
     hardware: HardwareInfo
+    local_model_path: Path | None = None
+
+    @property
+    def model_identifier(self) -> str:
+        if self.local_model_path is not None:
+            return str(self.local_model_path)
+        return self.model_size
+
+    @property
+    def display_name(self) -> str:
+        if self.local_model_path is not None:
+            return self.local_model_path.name
+        return self.model_size
+
+    @property
+    def is_local_model(self) -> bool:
+        return self.local_model_path is not None
+
+
+@dataclass(frozen=True)
+class CalibrationResult:
+    model_size: str
+    device: str
+    compute_type: str
+    audio_seconds: float
+    elapsed_seconds: float
+    realtime_factor: float
+    passed: bool
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class CalibrationReport:
+    results: tuple[CalibrationResult, ...]
+    selected: CalibrationResult | None
 
 
 def _no_proxy_bypasses_all() -> bool:
@@ -119,12 +156,20 @@ class ModelManager:
         auto_select: bool = True,
         device_mode: str = "auto",
         configured_compute_type: str = "auto",
+        local_model_path: str | None = None,
     ) -> ModelSelection:
         hardware = self.detector.detect()
+        resolved_local_model_path = _resolve_local_model_path(local_model_path)
         model_size = choose_model(hardware) if auto_select or not configured_model else configured_model
         device = _select_device(device_mode, hardware)
         compute_type = _select_compute_type(configured_compute_type, device)
-        selection = ModelSelection(model_size, device, compute_type, hardware)
+        selection = ModelSelection(
+            model_size,
+            device,
+            compute_type,
+            hardware,
+            resolved_local_model_path,
+        )
         logger.info("Selected model: %s", selection)
         return selection
 
@@ -135,6 +180,7 @@ class ModelManager:
         hf_token: str | None = None,
         auto_install_cuda_runtime: bool = True,
         allow_cpu_fallback: bool = True,
+        offline_mode: bool = False,
     ):
         try:
             from faster_whisper import WhisperModel
@@ -153,6 +199,7 @@ class ModelManager:
                 progress,
                 hf_token,
                 auto_install_cuda_runtime,
+                offline_mode,
             )
         except Exception as exc:
             if _is_proxy_scheme_error(exc):
@@ -175,6 +222,7 @@ class ModelManager:
                     progress,
                     hf_token,
                     auto_install_cuda_runtime=False,
+                    offline_mode=offline_mode,
                 )
             except Exception as fallback_exc:
                 if _is_proxy_scheme_error(fallback_exc):
@@ -188,16 +236,107 @@ class ModelManager:
         progress: callable | None,
         hf_token: str | None,
         auto_install_cuda_runtime: bool,
+        offline_mode: bool,
     ):
         if selection.device == "cuda":
             _prepare_cuda_runtime(auto_install_cuda_runtime, progress)
+        is_local_model = bool(getattr(selection, "is_local_model", False))
+        model_identifier = getattr(selection, "model_identifier", selection.model_size)
+        model_kwargs = {
+            "device": selection.device,
+            "compute_type": selection.compute_type,
+            "download_root": str(self.models_dir),
+        }
+        if offline_mode:
+            if not _supports_local_files_only(model_class):
+                if not is_local_model:
+                    raise RuntimeError(
+                        "Offline mode needs a local CTranslate2 model folder with this "
+                        "faster-whisper version."
+                    )
+            else:
+                model_kwargs["local_files_only"] = True
         with _model_download_env(progress, hf_token):
             return model_class(
-                selection.model_size,
-                device=selection.device,
-                compute_type=selection.compute_type,
-                download_root=str(self.models_dir),
+                model_identifier,
+                **model_kwargs,
             )
+
+    def calibration_candidates(self, hardware: HardwareInfo) -> list[str]:
+        max_model = choose_model(hardware)
+        max_index = MODEL_QUALITY_ORDER.index(max_model)
+        return list(MODEL_QUALITY_ORDER[: max_index + 1])
+
+    def calibrate(
+        self,
+        configured_model: str | None = None,
+        auto_select: bool = True,
+        device_mode: str = "auto",
+        configured_compute_type: str = "auto",
+        local_model_path: str | None = None,
+        progress: callable | None = None,
+        hf_token: str | None = None,
+        auto_install_cuda_runtime: bool = True,
+        offline_mode: bool = False,
+        audio_seconds: float = 3.0,
+        max_realtime_factor: float = 0.8,
+    ) -> CalibrationReport:
+        hardware = self.detector.detect()
+        resolved_local_model_path = _resolve_local_model_path(local_model_path)
+        candidates = [configured_model or resolved_local_model_path.name] if resolved_local_model_path else (
+            self.calibration_candidates(hardware)
+            if auto_select or not configured_model
+            else [configured_model]
+        )
+        results = []
+        for model_size in candidates:
+            device = _select_device(device_mode, hardware)
+            selection = ModelSelection(
+                model_size=model_size,
+                device=device,
+                compute_type=_select_compute_type(configured_compute_type, device),
+                hardware=hardware,
+                local_model_path=resolved_local_model_path,
+            )
+            if progress:
+                progress(f"Calibrating {selection.display_name} on {selection.device}")
+            try:
+                model = self.ensure_model(
+                    selection,
+                    progress,
+                    hf_token,
+                    auto_install_cuda_runtime,
+                    allow_cpu_fallback=device_mode == "auto",
+                    offline_mode=offline_mode,
+                )
+                elapsed_seconds = _benchmark_model(model, audio_seconds)
+                realtime_factor = elapsed_seconds / audio_seconds
+                results.append(
+                    CalibrationResult(
+                        model_size=selection.display_name,
+                        device=selection.device,
+                        compute_type=selection.compute_type,
+                        audio_seconds=audio_seconds,
+                        elapsed_seconds=elapsed_seconds,
+                        realtime_factor=realtime_factor,
+                        passed=realtime_factor <= max_realtime_factor,
+                    )
+                )
+            except Exception as exc:
+                logger.exception("Calibration failed for %s", model_size)
+                results.append(
+                    CalibrationResult(
+                        model_size=model_size,
+                        device=selection.device,
+                        compute_type=selection.compute_type,
+                        audio_seconds=audio_seconds,
+                        elapsed_seconds=0.0,
+                        realtime_factor=float("inf"),
+                        passed=False,
+                        error=str(exc),
+                    )
+                )
+        return CalibrationReport(tuple(results), _best_calibration_result(results))
 
 
 def _select_device(device_mode: str, hardware: HardwareInfo) -> str:
@@ -212,6 +351,70 @@ def _select_compute_type(configured_compute_type: str, device: str) -> str:
     if configured_compute_type != "auto":
         return configured_compute_type
     return "float16" if device == "cuda" else "int8"
+
+
+def _resolve_local_model_path(local_model_path: str | None) -> Path | None:
+    if not local_model_path:
+        return None
+    path = Path(local_model_path).expanduser().resolve(strict=False)
+    if not path.is_dir():
+        raise RuntimeError(f"Local model folder does not exist: {path}")
+    if not (path / "model.bin").is_file():
+        raise RuntimeError(f"Local model folder is missing model.bin: {path}")
+    return path
+
+
+def _supports_local_files_only(model_class) -> bool:
+    try:
+        import inspect
+
+        return "local_files_only" in inspect.signature(model_class.__init__).parameters
+    except Exception:
+        return False
+
+
+def _benchmark_model(model, audio_seconds: float) -> float:
+    import io
+    import math
+    import wave
+
+    import numpy as np
+
+    sample_rate = 16_000
+    seconds = max(1.0, audio_seconds)
+    frames = int(sample_rate * seconds)
+    samples = np.fromiter(
+        (0.05 * math.sin(2 * math.pi * 220 * index / sample_rate) for index in range(frames)),
+        dtype=np.float32,
+        count=frames,
+    )
+    pcm = (samples * 32767).astype(np.int16).tobytes()
+    data = io.BytesIO()
+    with wave.open(data, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(pcm)
+    data.seek(0)
+
+    started = time.perf_counter()
+    segments, _info = model.transcribe(
+        data,
+        language=None,
+        vad_filter=False,
+        beam_size=1,
+        condition_on_previous_text=False,
+    )
+    list(segments)
+    return time.perf_counter() - started
+
+
+def _best_calibration_result(results: list[CalibrationResult]) -> CalibrationResult | None:
+    passed = [result for result in results if result.passed and result.error is None]
+    if passed:
+        return passed[-1]
+    usable = [result for result in results if result.error is None]
+    return min(usable, key=lambda result: result.realtime_factor, default=None)
 
 
 def _prepare_cuda_runtime(auto_install: bool, progress: callable | None = None) -> None:
