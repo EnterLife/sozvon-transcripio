@@ -31,6 +31,7 @@ class RecognitionSettings:
     auto_select_model: bool = True
     device: str = "auto"
     compute_type: str = "auto"
+    transcription_window_seconds: float = 3.0
     auto_install_cuda_runtime: bool = True
     hf_token: str | None = None
     dry_run: bool = False
@@ -178,6 +179,12 @@ def _normalize_settings(settings: AppSettings) -> AppSettings:
                 settings.recognition.compute_type,
                 recognition_defaults.compute_type,
                 COMPUTE_TYPES,
+            ),
+            transcription_window_seconds=_bounded_float(
+                settings.recognition.transcription_window_seconds,
+                recognition_defaults.transcription_window_seconds,
+                1.0,
+                8.0,
             ),
             auto_install_cuda_runtime=_bool(
                 settings.recognition.auto_install_cuda_runtime,

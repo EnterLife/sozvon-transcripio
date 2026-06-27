@@ -11,6 +11,7 @@ def test_settings_roundtrip(tmp_path) -> None:
     settings.recognition.auto_select_model = False
     settings.recognition.device = "cuda"
     settings.recognition.compute_type = "float16"
+    settings.recognition.transcription_window_seconds = 4.5
     settings.recognition.auto_install_cuda_runtime = False
     settings.recognition.hf_token = "hf_test_token"
     settings.recognition.dry_run = True
@@ -26,6 +27,7 @@ def test_settings_roundtrip(tmp_path) -> None:
     assert loaded.recognition.auto_select_model is False
     assert loaded.recognition.device == "cuda"
     assert loaded.recognition.compute_type == "float16"
+    assert loaded.recognition.transcription_window_seconds == 4.5
     assert loaded.recognition.auto_install_cuda_runtime is False
     assert loaded.recognition.hf_token == "hf_test_token"
     assert loaded.recognition.dry_run is True
@@ -82,6 +84,7 @@ def test_invalid_setting_values_fall_back_or_clamp(tmp_path) -> None:
             "auto_select_model": "yes",
             "device": "quantum",
             "compute_type": "surprise",
+            "transcription_window_seconds": 99,
             "auto_install_cuda_runtime": "please",
             "hf_token": 123,
             "dry_run": 1
@@ -106,6 +109,7 @@ def test_invalid_setting_values_fall_back_or_clamp(tmp_path) -> None:
     assert settings.recognition.auto_select_model is True
     assert settings.recognition.device == "auto"
     assert settings.recognition.compute_type == "auto"
+    assert settings.recognition.transcription_window_seconds == 8.0
     assert settings.recognition.auto_install_cuda_runtime is True
     assert settings.recognition.hf_token is None
     assert settings.recognition.dry_run is False

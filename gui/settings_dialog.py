@@ -33,6 +33,7 @@ class SettingsDialog(QDialog):
         self.auto_model = QCheckBox("Auto-select")
         self.device_combo = QComboBox()
         self.compute_type_combo = QComboBox()
+        self.transcription_window_seconds = QDoubleSpinBox()
         self.auto_install_cuda_runtime = QCheckBox("Auto-install missing CUDA runtime")
         self.hf_token = QLineEdit()
         self.dry_run = QCheckBox("Use test transcript engine")
@@ -52,6 +53,7 @@ class SettingsDialog(QDialog):
         form.addRow("Model selection", self.auto_model)
         form.addRow("Device", self.device_combo)
         form.addRow("Compute type", self.compute_type_combo)
+        form.addRow("Recognition window seconds", self.transcription_window_seconds)
         form.addRow("GPU runtime", self.auto_install_cuda_runtime)
         form.addRow("Hugging Face token", self.hf_token)
         form.addRow("Test mode", self.dry_run)
@@ -84,6 +86,9 @@ class SettingsDialog(QDialog):
         self.settings.recognition.auto_select_model = self.auto_model.isChecked()
         self.settings.recognition.device = self.device_combo.currentData()
         self.settings.recognition.compute_type = self.compute_type_combo.currentData()
+        self.settings.recognition.transcription_window_seconds = (
+            self.transcription_window_seconds.value()
+        )
         self.settings.recognition.auto_install_cuda_runtime = (
             self.auto_install_cuda_runtime.isChecked()
         )
@@ -119,6 +124,13 @@ class SettingsDialog(QDialog):
         ):
             self.compute_type_combo.addItem(label, compute_type)
         self._select_data(self.compute_type_combo, self.settings.recognition.compute_type)
+
+        self.transcription_window_seconds.setRange(1.0, 8.0)
+        self.transcription_window_seconds.setSingleStep(0.5)
+        self.transcription_window_seconds.setDecimals(1)
+        self.transcription_window_seconds.setValue(
+            self.settings.recognition.transcription_window_seconds
+        )
         self.auto_install_cuda_runtime.setChecked(
             self.settings.recognition.auto_install_cuda_runtime
         )

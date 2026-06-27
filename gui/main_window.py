@@ -4,8 +4,8 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QThread, QTimer, Signal, Slot
-from PySide6.QtGui import QAction
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, QUrl, Signal, Slot
+from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from audio.audio_router import AudioRouter
+from audio.audio_router import AudioRouter, AudioRouterStats
 from audio.devices import (
     default_loopback_index,
     default_microphone_index,
@@ -34,11 +34,13 @@ from config.settings import AppSettings, load_settings, save_settings
 from core.atomic_write import write_text_atomic
 from core.paths import AppPaths
 from gui.settings_dialog import SettingsDialog
+from gui.status import parse_capture_status
 from speech.mock_engine import MockTranscriptionEngine
 from speech.model_manager import ModelManager
 from speech.transcription_worker import TranscriptionWorker
 from speech.types import TranscriptEvent
 from speech.whisper_engine import WhisperEngine
+from storage.session_paths import resolve_transcript_dir, same_transcript_dir
 from storage.transcript_store import TranscriptStore
 
 logger = logging.getLogger(__name__)
@@ -96,12 +98,17 @@ class MainWindow(QMainWindow):
         self.transcriber: TranscriptionWorker | None = None
         self.model = None
         self.model_selection = None
-        self.store = TranscriptStore(Path(self.settings.storage.transcript_dir))
+        self.store = TranscriptStore(
+            resolve_transcript_dir(self.settings.storage.transcript_dir, self.paths.transcripts_dir)
+        )
+        self._last_drop_warning_count = 0
 
         self.model_label = QLabel("Model: not loaded")
         self.gpu_label = QLabel("GPU: detecting")
         self.mic_label = QLabel("Mic: idle")
         self.loopback_label = QLabel("System audio: idle")
+        self.save_path_label = QLabel()
+        self.save_path_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.transcript = QPlainTextEdit()
         self.transcript.setReadOnly(True)
         self.status_console = QPlainTextEdit()
@@ -116,11 +123,13 @@ class MainWindow(QMainWindow):
         self.export_button = QPushButton("Export")
         self.new_session_button = QPushButton("New session")
         self.clear_button = QPushButton("Clear")
+        self.open_folder_button = QPushButton("Open folder")
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(False)
 
         self._build_ui()
         self._connect_signals()
+        self._refresh_session_label()
         self._prepare_recognition()
 
         self.autosave = QTimer(self)
@@ -156,11 +165,13 @@ class MainWindow(QMainWindow):
         controls.addWidget(self.export_button)
         controls.addWidget(self.new_session_button)
         controls.addWidget(self.clear_button)
+        controls.addWidget(self.open_folder_button)
         controls.addStretch(1)
 
         layout = QVBoxLayout()
         layout.addLayout(controls)
         layout.addLayout(indicators)
+        layout.addWidget(self.save_path_label)
         layout.addWidget(self.transcript, stretch=1)
         layout.addWidget(self.status_console)
 
@@ -177,6 +188,7 @@ class MainWindow(QMainWindow):
         self.export_button.clicked.connect(self._export_transcript)
         self.new_session_button.clicked.connect(self._new_session)
         self.clear_button.clicked.connect(self._clear_session)
+        self.open_folder_button.clicked.connect(self._open_transcript_folder)
         self.transcript_event.connect(self._on_transcript_event)
         self.worker_error.connect(self._show_error)
         self.capture_status.connect(self._on_capture_status)
@@ -246,7 +258,8 @@ class MainWindow(QMainWindow):
         if diagnostics.messages:
             QMessageBox.information(self, "Audio diagnostics", "\n".join(diagnostics.messages))
 
-        self.router = AudioRouter()
+        self._last_drop_warning_count = 0
+        self.router = AudioRouter(on_backpressure=self._on_audio_backpressure)
         sample_rate = self.settings.audio.sample_rate
         chunk_seconds = self.settings.audio.chunk_seconds
         self.captures = [
@@ -277,6 +290,7 @@ class MainWindow(QMainWindow):
             engine,
             self.transcript_event.emit,
             self.worker_error.emit,
+            self.settings.recognition.transcription_window_seconds,
         )
 
         for capture in self.captures:
@@ -304,19 +318,36 @@ class MainWindow(QMainWindow):
         logger.info("Transcription stopped")
 
     def _open_settings(self) -> None:
+        previous_microphone = self.settings.audio.microphone_device
+        previous_loopback = self.settings.audio.loopback_device
+        previous_sample_rate = self.settings.audio.sample_rate
+        previous_chunk_seconds = self.settings.audio.chunk_seconds
         previous_dry_run = self.settings.recognition.dry_run
         previous_model = self.settings.recognition.model_size
         previous_auto = self.settings.recognition.auto_select_model
         previous_device = self.settings.recognition.device
         previous_compute_type = self.settings.recognition.compute_type
+        previous_transcription_window = self.settings.recognition.transcription_window_seconds
         previous_cuda_runtime = self.settings.recognition.auto_install_cuda_runtime
         previous_hf_token = self.settings.recognition.hf_token
+        previous_transcript_dir = self.store.directory
         dialog = SettingsDialog(self.settings, list_audio_devices(), self)
         if dialog.exec():
             save_settings(self.paths.settings_file, self.settings)
             self.autosave.setInterval(max(5, self.settings.storage.autosave_seconds) * 1000)
-            self.store = TranscriptStore(Path(self.settings.storage.transcript_dir or self.paths.transcripts_dir))
-            self._set_status("Settings saved")
+            selected_transcript_dir = resolve_transcript_dir(
+                self.settings.storage.transcript_dir,
+                self.paths.transcripts_dir,
+            )
+            if not same_transcript_dir(previous_transcript_dir, selected_transcript_dir):
+                self._save_transcript()
+                self.store = TranscriptStore(selected_transcript_dir)
+                self.transcript.clear()
+                self._refresh_session_label()
+                self._set_status("Transcript folder changed; new session started")
+            else:
+                self._refresh_session_label()
+                self._set_status("Settings saved")
             recognition_changed = (
                 previous_dry_run != self.settings.recognition.dry_run
                 or previous_model != self.settings.recognition.model_size
@@ -326,9 +357,20 @@ class MainWindow(QMainWindow):
                 or previous_cuda_runtime != self.settings.recognition.auto_install_cuda_runtime
                 or previous_hf_token != self.settings.recognition.hf_token
             )
+            capture_settings_changed = (
+                previous_microphone != self.settings.audio.microphone_device
+                or previous_loopback != self.settings.audio.loopback_device
+                or previous_sample_rate != self.settings.audio.sample_rate
+                or previous_chunk_seconds != self.settings.audio.chunk_seconds
+                or previous_transcription_window
+                != self.settings.recognition.transcription_window_seconds
+            )
             if recognition_changed:
                 self._stop()
                 self._prepare_recognition()
+            elif capture_settings_changed and self.transcriber is not None:
+                self._stop()
+                self._set_status("Recording stopped to apply audio settings")
             elif self.model is None:
                 self._prepare_recognition()
 
@@ -347,11 +389,18 @@ class MainWindow(QMainWindow):
     @Slot(str)
     def _on_capture_status(self, message: str) -> None:
         self._set_status(message)
-        source, state = _parse_capture_status(message)
+        source, state = parse_capture_status(message)
         if source is AudioSource.USER_MIC:
             self.mic_label.setText(f"Mic: {state}")
         elif source is AudioSource.REMOTE_AUDIO:
             self.loopback_label.setText(f"System audio: {state}")
+
+    def _on_audio_backpressure(self, stats: AudioRouterStats) -> None:
+        if stats.dropped_chunks == 1 or stats.dropped_chunks >= self._last_drop_warning_count + 10:
+            self._last_drop_warning_count = stats.dropped_chunks
+            self.capture_status.emit(
+                f"Transcription is behind; dropped {stats.dropped_chunks} audio chunks"
+            )
 
     @Slot(str)
     def _set_status(self, message: str) -> None:
@@ -372,7 +421,12 @@ class MainWindow(QMainWindow):
         scrollbar.setValue(scrollbar.maximum())
 
     def _save_transcript(self) -> None:
-        self.store.save()
+        try:
+            self.store.save()
+        except OSError as exc:
+            logger.exception("Could not save transcript")
+            self.statusBar().showMessage("Could not save transcript")
+            self._append_status("ERROR", f"Could not save transcript: {exc}")
 
     def _export_transcript(self) -> None:
         self._save_transcript()
@@ -380,19 +434,27 @@ class MainWindow(QMainWindow):
             self,
             "Export transcript",
             str(self.store.txt_path),
-            "Text files (*.txt);;JSON files (*.json)",
+            "Text files (*.txt);;Markdown files (*.md);;JSON files (*.json)",
         )
         if not target:
             return
         target_path = Path(target)
-        source = self.store.json_path if target_path.suffix.lower() == ".json" else self.store.txt_path
-        write_text_atomic(target_path, source.read_text(encoding="utf-8"))
+        if target_path.suffix.lower() == ".json":
+            source = self.store.to_json()
+        elif target_path.suffix.lower() == ".md":
+            source = self.store.to_markdown()
+        else:
+            source = self.store.to_text()
+        write_text_atomic(target_path, source)
         self._set_status(f"Exported to {target_path}")
 
     def _new_session(self) -> None:
         self._save_transcript()
-        self.store = TranscriptStore(Path(self.settings.storage.transcript_dir or self.paths.transcripts_dir))
+        self.store = TranscriptStore(
+            resolve_transcript_dir(self.settings.storage.transcript_dir, self.paths.transcripts_dir)
+        )
         self.transcript.clear()
+        self._refresh_session_label()
         self._set_status("New transcript session started")
 
     def _clear_session(self) -> None:
@@ -401,14 +463,9 @@ class MainWindow(QMainWindow):
         self._save_transcript()
         self._set_status("Transcript cleared")
 
+    def _open_transcript_folder(self) -> None:
+        self.store.directory.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.store.directory)))
 
-def _parse_capture_status(message: str) -> tuple[AudioSource | None, str]:
-    source_text, separator, state_text = message.partition(":")
-    if not separator:
-        return None, "idle"
-    try:
-        source = AudioSource(source_text.strip())
-    except ValueError:
-        return None, state_text.strip() or "idle"
-    state = state_text.strip() or "idle"
-    return source, state
+    def _refresh_session_label(self) -> None:
+        self.save_path_label.setText(f"Autosave: {self.store.txt_path}")

@@ -12,7 +12,9 @@ Implemented MVP foundation:
 - Source-based speaker separation: `Я` / `Собеседник`.
 - Hardware detection and automatic Whisper model selection.
 - Local `faster-whisper` transcription.
+- Buffered recognition windows to reduce phrase cuts during real-time capture.
 - Transcript autosave to TXT and JSON.
+- Export to TXT, Markdown, and JSON.
 - Settings dialog with audio, recognition, test mode, and storage options.
 
 ## Quick Start
@@ -113,6 +115,9 @@ GPU mode needs NVIDIA CUDA runtime DLLs used by CTranslate2. Normal setup instal
 GPU extras unless you run setup with `-CpuOnly`. If the DLLs are still missing, keep
 `Auto-install missing CUDA runtime` enabled in `Settings`; the app will try to install
 the required NVIDIA runtime wheels before loading the Whisper model.
+
+`Recognition window seconds` controls how much audio is sent to Whisper at a time.
+Lower values reduce delay; higher values usually reduce cut-off phrases.
 
 ## Test Mode
 

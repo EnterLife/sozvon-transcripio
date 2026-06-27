@@ -23,6 +23,24 @@ def test_transcript_store_saves_txt_and_json(tmp_path) -> None:
     assert "USER_MIC" in store.json_path.read_text(encoding="utf-8")
 
 
+def test_transcript_store_renders_markdown(tmp_path) -> None:
+    store = TranscriptStore(tmp_path)
+    store.add(
+        TranscriptEvent(
+            speaker="Собеседник",
+            timestamp=1_700_000_000,
+            text="Добрый день",
+            source="REMOTE_AUDIO",
+        )
+    )
+
+    markdown = store.to_markdown()
+
+    assert markdown.startswith("# Transcript\n")
+    assert f"## {store.records[0].timestamp} - Собеседник" in markdown
+    assert "Добрый день" in markdown
+
+
 def test_transcript_store_clear(tmp_path) -> None:
     store = TranscriptStore(tmp_path)
     store.add(TranscriptEvent(speaker="Я", timestamp=1_700_000_000, text="Привет", source="USER_MIC"))

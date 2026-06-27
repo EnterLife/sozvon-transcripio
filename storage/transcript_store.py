@@ -41,13 +41,26 @@ class TranscriptStore:
         self.records.clear()
 
     def save(self) -> None:
-        write_text_atomic(
-            self.json_path,
-            json.dumps([asdict(record) for record in self.records], ensure_ascii=False, indent=2),
-        )
-        write_text_atomic(self.txt_path, self._to_text())
+        write_text_atomic(self.json_path, self.to_json())
+        write_text_atomic(self.txt_path, self.to_text())
 
-    def _to_text(self) -> str:
+    def to_json(self) -> str:
+        return json.dumps([asdict(record) for record in self.records], ensure_ascii=False, indent=2)
+
+    def to_text(self) -> str:
         return "\n\n".join(
             f"[{record.timestamp}] {record.speaker}:\n{record.text}" for record in self.records
         )
+
+    def to_markdown(self) -> str:
+        lines = ["# Transcript", ""]
+        for record in self.records:
+            lines.extend(
+                [
+                    f"## {record.timestamp} - {record.speaker}",
+                    "",
+                    record.text,
+                    "",
+                ]
+            )
+        return "\n".join(lines).rstrip() + "\n"
