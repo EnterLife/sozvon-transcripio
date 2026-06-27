@@ -15,6 +15,7 @@ Implemented MVP foundation:
 - Buffered recognition windows to reduce phrase cuts during real-time capture.
 - Local CTranslate2 model folder selection and offline-only mode.
 - Manual model calibration to pick the highest-quality model that keeps up in real time.
+- Quality controls, glossary prompts, and optional word timestamps.
 - Transcript autosave to TXT and JSON.
 - Export to TXT, Markdown, and JSON.
 - Settings dialog with audio, recognition, test mode, and storage options.
@@ -130,6 +131,14 @@ the required NVIDIA runtime wheels before loading the Whisper model.
 `Recognition window seconds` controls how much audio is sent to Whisper at a time.
 Lower values reduce delay; higher values usually reduce cut-off phrases.
 
+`Quality mode` controls recognition speed and accuracy. `Fast` uses the lowest beam
+size for lower latency, `Balanced` improves quality with moderate cost, and `Accurate`
+uses a larger beam and previous-text conditioning for difficult speech at higher cost.
+
+Add names, products, acronyms, and domain-specific terms to `Glossary` to pass them as
+a local Whisper prompt. Enable `Save word timestamps in JSON` when you need word-level
+timing for review, subtitles, or later editing; TXT and Markdown exports stay concise.
+
 ## Test Mode
 
 Open `Settings` and enable `Use test transcript engine` to test the GUI, audio routing,
@@ -141,6 +150,21 @@ session controls, and autosave without downloading or loading a Whisper model.
 python -m compileall -q app.py audio config core gui speech storage tests
 python -m ruff check .
 python -m pytest -q
+```
+
+Optional smoke checks with real installed dependencies:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\smoke_gui.py
+.\.venv\Scripts\python.exe scripts\smoke_calibration.py --model tiny --device cpu --audio-seconds 1
+```
+
+After a model has been downloaded, you can smoke-test GUI loading from a local
+CTranslate2 folder:
+
+```powershell
+$modelPath = (Get-ChildItem -Path .\.smoke-models -Recurse -Filter model.bin | Select-Object -First 1).Directory.FullName
+.\.venv\Scripts\python.exe scripts\smoke_gui.py --local-model-path $modelPath --device cpu
 ```
 
 If `pytest` is not installed:

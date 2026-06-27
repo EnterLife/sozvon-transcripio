@@ -14,6 +14,7 @@ MODEL_SIZES = {"tiny", "base", "small", "medium", "large-v3"}
 LANGUAGES = {"", "ru", "en"}
 DEVICE_MODES = {"auto", "cpu", "cuda"}
 COMPUTE_TYPES = {"auto", "int8", "int8_float16", "float16", "float32"}
+QUALITY_MODES = {"fast", "balanced", "accurate"}
 
 
 @dataclass
@@ -29,6 +30,9 @@ class RecognitionSettings:
     language: str = "ru"
     model_size: str | None = None
     local_model_path: str | None = None
+    quality_mode: str = "balanced"
+    glossary_terms: str | None = None
+    word_timestamps: bool = False
     auto_select_model: bool = True
     device: str = "auto"
     compute_type: str = "auto"
@@ -171,6 +175,19 @@ def _normalize_settings(settings: AppSettings) -> AppSettings:
             local_model_path=_optional_non_empty_string(
                 settings.recognition.local_model_path,
                 recognition_defaults.local_model_path,
+            ),
+            quality_mode=_choice(
+                settings.recognition.quality_mode,
+                recognition_defaults.quality_mode,
+                QUALITY_MODES,
+            ),
+            glossary_terms=_optional_non_empty_string(
+                settings.recognition.glossary_terms,
+                recognition_defaults.glossary_terms,
+            ),
+            word_timestamps=_bool(
+                settings.recognition.word_timestamps,
+                recognition_defaults.word_timestamps,
             ),
             auto_select_model=_bool(
                 settings.recognition.auto_select_model,

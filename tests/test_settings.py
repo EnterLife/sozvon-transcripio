@@ -9,6 +9,9 @@ def test_settings_roundtrip(tmp_path) -> None:
     settings.recognition.language = "en"
     settings.recognition.model_size = "small"
     settings.recognition.local_model_path = "C:/models/faster-whisper-small"
+    settings.recognition.quality_mode = "accurate"
+    settings.recognition.glossary_terms = "Sozvon\nCTranslate2"
+    settings.recognition.word_timestamps = True
     settings.recognition.auto_select_model = False
     settings.recognition.device = "cuda"
     settings.recognition.compute_type = "float16"
@@ -27,6 +30,9 @@ def test_settings_roundtrip(tmp_path) -> None:
     assert loaded.recognition.language == "en"
     assert loaded.recognition.model_size == "small"
     assert loaded.recognition.local_model_path == "C:/models/faster-whisper-small"
+    assert loaded.recognition.quality_mode == "accurate"
+    assert loaded.recognition.glossary_terms == "Sozvon\nCTranslate2"
+    assert loaded.recognition.word_timestamps is True
     assert loaded.recognition.auto_select_model is False
     assert loaded.recognition.device == "cuda"
     assert loaded.recognition.compute_type == "float16"
@@ -86,6 +92,9 @@ def test_invalid_setting_values_fall_back_or_clamp(tmp_path) -> None:
             "language": "de",
             "model_size": "huge",
             "local_model_path": "   ",
+            "quality_mode": "maximum",
+            "glossary_terms": "   ",
+            "word_timestamps": "yes",
             "auto_select_model": "yes",
             "device": "quantum",
             "compute_type": "surprise",
@@ -113,6 +122,9 @@ def test_invalid_setting_values_fall_back_or_clamp(tmp_path) -> None:
     assert settings.recognition.language == "ru"
     assert settings.recognition.model_size is None
     assert settings.recognition.local_model_path is None
+    assert settings.recognition.quality_mode == "balanced"
+    assert settings.recognition.glossary_terms is None
+    assert settings.recognition.word_timestamps is False
     assert settings.recognition.auto_select_model is True
     assert settings.recognition.device == "auto"
     assert settings.recognition.compute_type == "auto"

@@ -190,7 +190,7 @@ class ModelManager:
             ) from exc
 
         if progress:
-            progress(f"Loading model {selection.model_size}...")
+            progress(f"Loading model {selection.display_name}...")
 
         try:
             return self._create_model(
@@ -323,7 +323,7 @@ class ModelManager:
                     )
                 )
             except Exception as exc:
-                logger.exception("Calibration failed for %s", model_size)
+                logger.warning("Calibration failed for %s: %s", model_size, exc)
                 results.append(
                     CalibrationResult(
                         model_size=model_size,

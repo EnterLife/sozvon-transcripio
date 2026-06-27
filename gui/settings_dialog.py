@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLineEdit,
     QDoubleSpinBox,
+    QPlainTextEdit,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -32,6 +33,9 @@ class SettingsDialog(QDialog):
         self.model_combo = QComboBox()
         self.local_model_path = QLineEdit()
         self.browse_model_button = QPushButton("Browse")
+        self.quality_mode_combo = QComboBox()
+        self.glossary_terms = QPlainTextEdit()
+        self.word_timestamps = QCheckBox("Save word timestamps in JSON")
         self.auto_model = QCheckBox("Auto-select")
         self.device_combo = QComboBox()
         self.compute_type_combo = QComboBox()
@@ -57,6 +61,9 @@ class SettingsDialog(QDialog):
         model_path_layout.addWidget(self.local_model_path)
         model_path_layout.addWidget(self.browse_model_button)
         form.addRow("Local model folder", model_path_layout)
+        form.addRow("Quality mode", self.quality_mode_combo)
+        form.addRow("Glossary", self.glossary_terms)
+        form.addRow("Word timestamps", self.word_timestamps)
         form.addRow("Model selection", self.auto_model)
         form.addRow("Device", self.device_combo)
         form.addRow("Compute type", self.compute_type_combo)
@@ -93,6 +100,9 @@ class SettingsDialog(QDialog):
         self.settings.recognition.language = self.language_combo.currentData()
         self.settings.recognition.model_size = self.model_combo.currentData()
         self.settings.recognition.local_model_path = self.local_model_path.text().strip() or None
+        self.settings.recognition.quality_mode = self.quality_mode_combo.currentData()
+        self.settings.recognition.glossary_terms = self.glossary_terms.toPlainText().strip() or None
+        self.settings.recognition.word_timestamps = self.word_timestamps.isChecked()
         self.settings.recognition.auto_select_model = self.auto_model.isChecked()
         self.settings.recognition.device = self.device_combo.currentData()
         self.settings.recognition.compute_type = self.compute_type_combo.currentData()
@@ -122,6 +132,19 @@ class SettingsDialog(QDialog):
         self._select_data(self.model_combo, self.settings.recognition.model_size or "base")
         self.local_model_path.setPlaceholderText("Optional CTranslate2 model folder")
         self.local_model_path.setText(self.settings.recognition.local_model_path or "")
+
+        for quality_mode, label in (
+            ("fast", "Fast"),
+            ("balanced", "Balanced"),
+            ("accurate", "Accurate"),
+        ):
+            self.quality_mode_combo.addItem(label, quality_mode)
+        self._select_data(self.quality_mode_combo, self.settings.recognition.quality_mode)
+
+        self.glossary_terms.setPlaceholderText("One term or name per line")
+        self.glossary_terms.setPlainText(self.settings.recognition.glossary_terms or "")
+        self.glossary_terms.setMaximumHeight(90)
+        self.word_timestamps.setChecked(self.settings.recognition.word_timestamps)
         self.auto_model.setChecked(self.settings.recognition.auto_select_model)
 
         for device, label in (("auto", "Auto"), ("cpu", "CPU"), ("cuda", "CUDA GPU")):

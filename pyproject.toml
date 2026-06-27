@@ -29,6 +29,10 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = [
+    ".smoke-models",
+    ".venv",
+]
 
 [build-system]
 requires = ["setuptools>=70", "wheel"]

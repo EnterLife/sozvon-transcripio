@@ -321,7 +321,13 @@ class MainWindow(QMainWindow):
         engine = (
             MockTranscriptionEngine()
             if self.settings.recognition.dry_run
-            else WhisperEngine(self.model, self.settings.recognition.language)
+            else WhisperEngine(
+                self.model,
+                self.settings.recognition.language,
+                self.settings.recognition.quality_mode,
+                self.settings.recognition.glossary_terms,
+                self.settings.recognition.word_timestamps,
+            )
         )
         self.transcriber = TranscriptionWorker(
             self.router,
@@ -363,6 +369,9 @@ class MainWindow(QMainWindow):
         previous_dry_run = self.settings.recognition.dry_run
         previous_model = self.settings.recognition.model_size
         previous_local_model_path = self.settings.recognition.local_model_path
+        previous_quality_mode = self.settings.recognition.quality_mode
+        previous_glossary_terms = self.settings.recognition.glossary_terms
+        previous_word_timestamps = self.settings.recognition.word_timestamps
         previous_auto = self.settings.recognition.auto_select_model
         previous_device = self.settings.recognition.device
         previous_compute_type = self.settings.recognition.compute_type
@@ -392,6 +401,9 @@ class MainWindow(QMainWindow):
                 previous_dry_run != self.settings.recognition.dry_run
                 or previous_model != self.settings.recognition.model_size
                 or previous_local_model_path != self.settings.recognition.local_model_path
+                or previous_quality_mode != self.settings.recognition.quality_mode
+                or previous_glossary_terms != self.settings.recognition.glossary_terms
+                or previous_word_timestamps != self.settings.recognition.word_timestamps
                 or previous_auto != self.settings.recognition.auto_select_model
                 or previous_device != self.settings.recognition.device
                 or previous_compute_type != self.settings.recognition.compute_type
@@ -544,6 +556,15 @@ class MainWindow(QMainWindow):
             for result in report.results
             if result.error is None
         ]
+        if not selected.passed:
+            self.model_label.setText(f"Model: {selected.model_size}")
+            self.start_button.setEnabled(self.model is not None)
+            self._set_status(
+                f"No calibrated model met real-time target; best RTF {selected.realtime_factor:.2f}"
+            )
+            if result_lines:
+                self._append_status("INFO", "Calibration results: " + "; ".join(result_lines))
+            return
         if self.settings.recognition.local_model_path is None:
             self.settings.recognition.model_size = selected.model_size
             self.settings.recognition.auto_select_model = False

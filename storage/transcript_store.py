@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from core.atomic_write import write_text_atomic
-from speech.types import TranscriptEvent
+from speech.types import TranscriptEvent, WordTimestamp
 
 
 @dataclass(frozen=True)
@@ -16,6 +16,7 @@ class TranscriptRecord:
     timestamp: str
     text: str
     source: str
+    words: tuple[WordTimestamp, ...] = ()
 
 
 class TranscriptStore:
@@ -33,6 +34,7 @@ class TranscriptStore:
             timestamp=datetime.fromtimestamp(event.timestamp).strftime("%H:%M:%S"),
             text=event.text,
             source=event.source,
+            words=event.words,
         )
         self.records.append(record)
         return record
