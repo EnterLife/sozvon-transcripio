@@ -13,7 +13,9 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSpinBox,
+    QTabWidget,
     QVBoxLayout,
+    QWidget,
 )
 
 from audio.devices import AudioDevice
@@ -52,9 +54,34 @@ class SettingsDialog(QDialog):
 
         self._populate()
 
-        form = QFormLayout()
+        tabs = QTabWidget()
+        tabs.addTab(self._audio_tab(), "Audio")
+        tabs.addTab(self._recognition_tab(), "Recognition")
+        tabs.addTab(self._storage_tab(), "Storage")
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(tabs)
+        layout.addWidget(buttons)
+        self.browse_button.clicked.connect(self._browse_transcript_dir)
+        self.browse_model_button.clicked.connect(self._browse_local_model_dir)
+        self.auto_model.toggled.connect(self._update_model_enabled)
+
+    def _audio_tab(self) -> QWidget:
+        tab = QWidget()
+        form = QFormLayout(tab)
         form.addRow("Microphone", self.mic_combo)
         form.addRow("Output / loopback", self.loopback_combo)
+        form.addRow("Sample rate", self.sample_rate)
+        form.addRow("Chunk seconds", self.chunk_seconds)
+        return tab
+
+    def _recognition_tab(self) -> QWidget:
+        tab = QWidget()
+        form = QFormLayout(tab)
         form.addRow("Language", self.language_combo)
         form.addRow("Model", self.model_combo)
         model_path_layout = QHBoxLayout()
@@ -72,25 +99,17 @@ class SettingsDialog(QDialog):
         form.addRow("Hugging Face token", self.hf_token)
         form.addRow("Offline mode", self.offline_mode)
         form.addRow("Test mode", self.dry_run)
-        form.addRow("Sample rate", self.sample_rate)
-        form.addRow("Chunk seconds", self.chunk_seconds)
-        form.addRow("Autosave seconds", self.autosave_seconds)
+        return tab
 
+    def _storage_tab(self) -> QWidget:
+        tab = QWidget()
+        form = QFormLayout(tab)
+        form.addRow("Autosave seconds", self.autosave_seconds)
         path_layout = QHBoxLayout()
         path_layout.addWidget(self.transcript_dir)
         path_layout.addWidget(self.browse_button)
         form.addRow("Transcript folder", path_layout)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-
-        layout = QVBoxLayout(self)
-        layout.addLayout(form)
-        layout.addWidget(buttons)
-        self.browse_button.clicked.connect(self._browse_transcript_dir)
-        self.browse_model_button.clicked.connect(self._browse_local_model_dir)
-        self.auto_model.toggled.connect(self._update_model_enabled)
+        return tab
 
     def accept(self) -> None:
         self.settings.audio.microphone_device = self.mic_combo.currentData()

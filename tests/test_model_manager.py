@@ -204,6 +204,40 @@ def test_cuda_load_error_falls_back_to_cpu(monkeypatch, tmp_path: Path) -> None:
     assert created == [("cuda", "float16"), ("cpu", "int8")]
 
 
+def test_cuda_fallback_preserves_local_model_path(monkeypatch, tmp_path: Path) -> None:
+    model_path = tmp_path / "local-model"
+    model_path.mkdir()
+    (model_path / "model.bin").write_bytes(b"model")
+    created: list[tuple[str, str, str]] = []
+
+    class FakeWhisperModel:
+        def __init__(self, model_identifier, *, device, compute_type, download_root) -> None:
+            created.append((str(model_identifier), device, compute_type))
+            if device == "cuda":
+                raise RuntimeError("Library cublas64_12.dll is not found")
+            self.download_root = download_root
+
+    monkeypatch.setitem(
+        sys.modules,
+        "faster_whisper",
+        types.SimpleNamespace(WhisperModel=FakeWhisperModel),
+    )
+    monkeypatch.setattr("speech.model_manager.configure_cuda_dll_paths", _ready_cuda)
+    monkeypatch.setattr("urllib.request.getproxies", lambda: {})
+
+    manager = ModelManager(tmp_path)
+    monkeypatch.setattr(manager.detector, "detect", lambda: hardware(cuda=True))
+    selection = manager.select(local_model_path=str(model_path), device_mode="cuda")
+
+    model = manager.ensure_model(selection, allow_cpu_fallback=True, offline_mode=True)
+
+    assert isinstance(model, FakeWhisperModel)
+    assert created == [
+        (str(model_path.resolve()), "cuda", "float16"),
+        (str(model_path.resolve()), "cpu", "int8"),
+    ]
+
+
 def test_ensure_model_passes_offline_local_files_only_when_supported(
     monkeypatch,
     tmp_path: Path,

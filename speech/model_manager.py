@@ -214,6 +214,7 @@ class ModelManager:
                 device="cpu",
                 compute_type="int8",
                 hardware=selection.hardware,
+                local_model_path=getattr(selection, "local_model_path", None),
             )
             try:
                 return self._create_model(
