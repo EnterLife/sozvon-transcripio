@@ -22,10 +22,10 @@ from PySide6.QtWidgets import (
 
 from audio.audio_router import AudioRouter, AudioRouterStats
 from audio.devices import (
-    default_loopback_index,
-    default_microphone_index,
     diagnose_audio,
     list_audio_devices,
+    resolve_loopback_index,
+    resolve_microphone_index,
 )
 from audio.loopback_capture import LoopbackCapture
 from audio.microphone_capture import MicrophoneCapture
@@ -229,10 +229,14 @@ class MainWindow(QMainWindow):
         self.capture_status.connect(self._on_capture_status)
 
     def _apply_default_devices(self) -> None:
-        if self.settings.audio.microphone_device is None:
-            self.settings.audio.microphone_device = default_microphone_index()
-        if self.settings.audio.loopback_device is None:
-            self.settings.audio.loopback_device = default_loopback_index()
+        if self.settings.audio.microphone_device is not None:
+            self.settings.audio.microphone_device = resolve_microphone_index(
+                self.settings.audio.microphone_device
+            )
+        if self.settings.audio.loopback_device is not None:
+            self.settings.audio.loopback_device = resolve_loopback_index(
+                self.settings.audio.loopback_device
+            )
 
     def _prepare_recognition(self) -> None:
         if self.settings.recognition.dry_run:

@@ -58,14 +58,19 @@ class SoundDeviceCapture:
         blocksize = max(1, int(self.sample_rate * self.chunk_seconds))
         extra_settings = None
         channels = 1
+        stream_device_index = self.device_index
 
         if self.loopback:
             if not _sounddevice_wasapi_supports_loopback(sd):
                 self._run_soundcard_loopback(sd, blocksize)
                 return
             try:
+                stream_device_index = _resolve_sounddevice_loopback_index(sd, self.device_index)
+                if stream_device_index is None:
+                    self._fail("No WASAPI output device found for loopback capture.")
+                    return
                 extra_settings = sd.WasapiSettings(loopback=True)
-                device_info = sd.query_devices(self.device_index)
+                device_info = sd.query_devices(stream_device_index)
                 channels = max(1, min(2, int(device_info["max_output_channels"])))
             except Exception as exc:
                 self._fail(f"WASAPI loopback is unavailable: {exc}")
@@ -81,7 +86,7 @@ class SoundDeviceCapture:
         logger.info(
             "Starting capture source=%s device=%s loopback=%s",
             self.source,
-            self.device_index,
+            stream_device_index,
             self.loopback,
         )
         if self.on_status:
@@ -98,7 +103,7 @@ class SoundDeviceCapture:
         failed = False
         try:
             with sd.InputStream(
-                device=self.device_index,
+                device=stream_device_index,
                 samplerate=self.sample_rate,
                 channels=channels,
                 dtype="float32",
@@ -193,6 +198,14 @@ def _sounddevice_output_name(sd, device_index: int | None) -> str | None:
         return None
     device_info = sd.query_devices(device_index)
     return str(device_info.get("name", "")).strip() or None
+
+
+def _resolve_sounddevice_loopback_index(sd, device_index: int | None) -> int | None:
+    if device_index is not None:
+        return device_index
+    from audio.devices import default_loopback_index
+
+    return default_loopback_index(sd)
 
 
 def _select_soundcard_loopback_microphone(sc, output_name: str | None):

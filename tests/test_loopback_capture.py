@@ -5,6 +5,7 @@ import numpy as np
 
 from audio.capture_base import (
     SoundDeviceCapture,
+    _resolve_sounddevice_loopback_index,
     _select_soundcard_loopback_microphone,
     _sounddevice_output_name,
     _sounddevice_wasapi_supports_loopback,
@@ -31,6 +32,33 @@ def test_sounddevice_output_name_uses_selected_device() -> None:
     sd = SimpleNamespace(query_devices=lambda index: {"name": f"Speakers {index}"})
 
     assert _sounddevice_output_name(sd, 8) == "Speakers 8"
+
+
+def test_sounddevice_loopback_resolves_default_wasapi_output() -> None:
+    devices = [
+        {
+            "name": "Speakers",
+            "hostapi": 0,
+            "max_input_channels": 0,
+            "max_output_channels": 2,
+        },
+        {
+            "name": "Speakers",
+            "hostapi": 1,
+            "max_input_channels": 0,
+            "max_output_channels": 2,
+        },
+    ]
+    sd = SimpleNamespace(
+        query_hostapis=lambda: [
+            {"name": "MME", "default_input_device": -1, "default_output_device": 0},
+            {"name": "Windows WASAPI", "default_input_device": -1, "default_output_device": 1},
+        ],
+        query_devices=lambda index=None: devices if index is None else devices[index],
+        default=SimpleNamespace(device=[-1, 0]),
+    )
+
+    assert _resolve_sounddevice_loopback_index(sd, None) == 1
 
 
 def test_select_soundcard_loopback_by_output_name() -> None:

@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from audio.devices import AudioDevice
+from audio.devices import AudioDevice, list_loopback_devices, list_microphone_devices
 from config.settings import AppSettings
 
 
@@ -211,12 +211,11 @@ class SettingsDialog(QDialog):
         self.transcript_dir.setText(self.settings.storage.transcript_dir or "")
 
     def _add_device_options(self, combo: QComboBox, input_only: bool) -> None:
-        combo.addItem("Default", None)
-        for device in self.devices:
-            if input_only and device.max_input_channels <= 0:
-                continue
-            if not input_only and device.max_output_channels <= 0:
-                continue
+        combo.addItem("Default microphone" if input_only else "Default output", None)
+        devices = (
+            list_microphone_devices(self.devices) if input_only else list_loopback_devices(self.devices)
+        )
+        for device in devices:
             combo.addItem(f"{device.name} ({device.hostapi})", device.index)
 
         selected = (
