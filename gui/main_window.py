@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from audio.audio_router import AudioRouter, AudioRouterStats
 from audio.devices import (
+    AudioDiagnostics,
     diagnose_audio,
     list_audio_devices,
     resolve_loopback_index,
@@ -44,6 +45,17 @@ from storage.session_paths import resolve_transcript_dir, same_transcript_dir
 from storage.transcript_store import TranscriptStore
 
 logger = logging.getLogger(__name__)
+
+
+def capture_sources_for_diagnostics(diagnostics: AudioDiagnostics) -> list[AudioSource]:
+    if not diagnostics.sounddevice_available:
+        return []
+    sources: list[AudioSource] = []
+    if diagnostics.microphone_available:
+        sources.append(AudioSource.USER_MIC)
+    if diagnostics.loopback_available:
+        sources.append(AudioSource.REMOTE_AUDIO)
+    return sources
 
 
 class ModelLoader(QObject):
@@ -294,8 +306,12 @@ class MainWindow(QMainWindow):
             self.settings.audio.microphone_device,
             self.settings.audio.loopback_device,
         )
-        if not diagnostics.sounddevice_available or not diagnostics.microphone_available:
+        if not diagnostics.sounddevice_available:
             self._show_error("\n".join(diagnostics.messages) or "Audio input is not available.")
+            return
+        capture_sources = capture_sources_for_diagnostics(diagnostics)
+        if not capture_sources:
+            self._show_error("\n".join(diagnostics.messages) or "No usable audio source is available.")
             return
         if diagnostics.messages:
             QMessageBox.information(self, "Audio diagnostics", "\n".join(diagnostics.messages))
@@ -304,24 +320,37 @@ class MainWindow(QMainWindow):
         self.router = AudioRouter(on_backpressure=self._on_audio_backpressure)
         sample_rate = self.settings.audio.sample_rate
         chunk_seconds = self.settings.audio.chunk_seconds
-        self.captures = [
-            MicrophoneCapture(
-                self.settings.audio.microphone_device,
-                sample_rate,
-                chunk_seconds,
-                self.router.push,
-                self.worker_error.emit,
-                self.capture_status.emit,
-            ),
-            LoopbackCapture(
-                self.settings.audio.loopback_device,
-                sample_rate,
-                chunk_seconds,
-                self.router.push,
-                self.worker_error.emit,
-                self.capture_status.emit,
-            ),
-        ]
+        self.captures = []
+        if AudioSource.USER_MIC in capture_sources:
+            self.captures.append(
+                MicrophoneCapture(
+                    self.settings.audio.microphone_device,
+                    sample_rate,
+                    chunk_seconds,
+                    self.router.push,
+                    self.worker_error.emit,
+                    self.capture_status.emit,
+                )
+            )
+        if AudioSource.REMOTE_AUDIO in capture_sources:
+            self.captures.append(
+                LoopbackCapture(
+                    self.settings.audio.loopback_device,
+                    sample_rate,
+                    chunk_seconds,
+                    self.router.push,
+                    self.worker_error.emit,
+                    self.capture_status.emit,
+                )
+            )
+        self.mic_label.setText(
+            "Mic: starting" if AudioSource.USER_MIC in capture_sources else "Mic: unavailable"
+        )
+        self.loopback_label.setText(
+            "System audio: starting"
+            if AudioSource.REMOTE_AUDIO in capture_sources
+            else "System audio: unavailable"
+        )
         engine = (
             MockTranscriptionEngine()
             if self.settings.recognition.dry_run
@@ -344,8 +373,6 @@ class MainWindow(QMainWindow):
         for capture in self.captures:
             capture.start()
         self.transcriber.start()
-        self.mic_label.setText("Mic: active")
-        self.loopback_label.setText("System audio: active")
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
         self._set_status("Transcribing...")
