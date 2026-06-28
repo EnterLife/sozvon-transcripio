@@ -61,9 +61,9 @@ class WhisperEngine:
             segment_list = list(segments)
             text = " ".join(segment.text.strip() for segment in segment_list).strip()
             words = self._word_timestamps(segment_list, chunk.timestamp)
-        except Exception:
+        except Exception as exc:
             logger.exception("Transcription failed for %s", chunk.source)
-            return None
+            raise RuntimeError(f"Transcription failed for {chunk.source}: {exc}") from exc
 
         if not text:
             return None

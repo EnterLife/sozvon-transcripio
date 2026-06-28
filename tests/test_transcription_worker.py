@@ -29,6 +29,11 @@ class RecordingEngine:
         )
 
 
+class FailingEngine:
+    def transcribe_chunk(self, _audio_chunk: AudioChunk) -> None:
+        raise RuntimeError("engine crashed")
+
+
 def test_transcription_worker_buffers_short_chunks_before_transcribing() -> None:
     router = AudioRouter()
     engine = RecordingEngine()
@@ -73,3 +78,21 @@ def test_transcription_worker_flushes_remaining_audio_on_stop() -> None:
     worker.stop()
 
     assert [event.text for event in events] == ["4 bytes"]
+
+
+def test_transcription_worker_reports_engine_errors() -> None:
+    router = AudioRouter()
+    errors = []
+    worker = TranscriptionWorker(
+        router,
+        FailingEngine(),
+        lambda _event: None,
+        errors.append,
+        window_seconds=0.0,
+    )
+
+    worker.start()
+    router.push(chunk(1.0))
+    worker.stop()
+
+    assert errors == ["engine crashed"]

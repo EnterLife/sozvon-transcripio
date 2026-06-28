@@ -30,6 +30,11 @@ class FakeModel:
         return iter([SimpleNamespace(text="Sozvon test", words=words)]), None
 
 
+class FailingModel:
+    def transcribe(self, *_args, **_kwargs):
+        raise RuntimeError("model unavailable")
+
+
 def test_whisper_engine_uses_quality_glossary_and_word_timestamps() -> None:
     model = FakeModel()
     engine = WhisperEngine(
@@ -65,3 +70,15 @@ def test_whisper_engine_fast_mode_disables_context_conditioning() -> None:
     assert model.kwargs["condition_on_previous_text"] is False
     assert model.kwargs["initial_prompt"] is None
     assert event.words == ()
+
+
+def test_whisper_engine_surfaces_model_errors() -> None:
+    engine = WhisperEngine(FailingModel())
+
+    try:
+        engine.transcribe_chunk(audio_chunk())
+    except RuntimeError as exc:
+        assert "Transcription failed for USER_MIC" in str(exc)
+        assert "model unavailable" in str(exc)
+    else:
+        raise AssertionError("expected transcription failure to propagate")
