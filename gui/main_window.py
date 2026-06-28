@@ -58,6 +58,10 @@ def capture_sources_for_diagnostics(diagnostics: AudioDiagnostics) -> list[Audio
     return sources
 
 
+def audio_diagnostics_notice(diagnostics: AudioDiagnostics) -> str | None:
+    return "\n".join(diagnostics.messages) or None
+
+
 class ModelLoader(QObject):
     loaded = Signal(object, object)
     failed = Signal(str)
@@ -313,8 +317,9 @@ class MainWindow(QMainWindow):
         if not capture_sources:
             self._show_error("\n".join(diagnostics.messages) or "No usable audio source is available.")
             return
-        if diagnostics.messages:
-            QMessageBox.information(self, "Audio diagnostics", "\n".join(diagnostics.messages))
+        notice = audio_diagnostics_notice(diagnostics)
+        if notice:
+            self._append_status("WARN", notice)
 
         self._last_drop_warning_count = 0
         self.router = AudioRouter(on_backpressure=self._on_audio_backpressure)

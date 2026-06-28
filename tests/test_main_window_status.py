@@ -1,6 +1,6 @@
 from audio.devices import AudioDiagnostics
 from audio.types import AudioSource
-from gui.main_window import capture_sources_for_diagnostics
+from gui.main_window import audio_diagnostics_notice, capture_sources_for_diagnostics
 from gui.status import parse_capture_status
 
 
@@ -59,3 +59,28 @@ def test_capture_sources_are_empty_without_sounddevice() -> None:
     )
 
     assert capture_sources_for_diagnostics(diagnostics) == []
+
+
+def test_audio_diagnostics_notice_joins_messages() -> None:
+    diagnostics = AudioDiagnostics(
+        sounddevice_available=True,
+        microphone_available=False,
+        loopback_available=True,
+        messages=["No microphone input device found.", "Using system audio only."],
+    )
+
+    assert (
+        audio_diagnostics_notice(diagnostics)
+        == "No microphone input device found.\nUsing system audio only."
+    )
+
+
+def test_audio_diagnostics_notice_is_none_without_messages() -> None:
+    diagnostics = AudioDiagnostics(
+        sounddevice_available=True,
+        microphone_available=True,
+        loopback_available=True,
+        messages=[],
+    )
+
+    assert audio_diagnostics_notice(diagnostics) is None
