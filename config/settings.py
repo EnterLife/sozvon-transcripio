@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import asdict, dataclass, field
 from json import JSONDecodeError
 from pathlib import Path
@@ -56,12 +57,12 @@ class AppSettings:
     storage: StorageSettings = field(default_factory=StorageSettings)
 
 
-def _optional_int(value: Any, default: int | None) -> int | None:
+def _optional_device_index(value: Any, default: int | None) -> int | None:
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int):
         return default
-    return value
+    return value if value >= 0 else default
 
 
 def _bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
@@ -73,7 +74,10 @@ def _bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
 def _bounded_float(value: Any, default: float, minimum: float, maximum: float) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return default
-    return min(max(float(value), minimum), maximum)
+    numeric_value = float(value)
+    if not math.isfinite(numeric_value):
+        return default
+    return min(max(numeric_value, minimum), maximum)
 
 
 def _choice(value: Any, default: str, allowed: set[str]) -> str:
@@ -148,11 +152,14 @@ def _normalize_settings(settings: AppSettings) -> AppSettings:
 
     return AppSettings(
         audio=AudioSettings(
-            microphone_device=_optional_int(
+            microphone_device=_optional_device_index(
                 settings.audio.microphone_device,
                 audio_defaults.microphone_device,
             ),
-            loopback_device=_optional_int(settings.audio.loopback_device, audio_defaults.loopback_device),
+            loopback_device=_optional_device_index(
+                settings.audio.loopback_device,
+                audio_defaults.loopback_device,
+            ),
             sample_rate=sample_rate,
             chunk_seconds=_bounded_float(
                 settings.audio.chunk_seconds,

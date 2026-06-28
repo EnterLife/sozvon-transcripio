@@ -135,3 +135,45 @@ def test_invalid_setting_values_fall_back_or_clamp(tmp_path) -> None:
     assert settings.recognition.dry_run is False
     assert settings.storage.autosave_seconds == 5
     assert settings.storage.transcript_dir is None
+
+
+def test_non_finite_float_settings_fall_back_to_defaults(tmp_path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        """
+        {
+          "audio": {
+            "chunk_seconds": NaN
+          },
+          "recognition": {
+            "transcription_window_seconds": Infinity
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    settings = load_settings(path)
+
+    assert settings.audio.chunk_seconds == 1.0
+    assert settings.recognition.transcription_window_seconds == 3.0
+
+
+def test_negative_device_indexes_fall_back_to_defaults(tmp_path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        """
+        {
+          "audio": {
+            "microphone_device": -1,
+            "loopback_device": -2
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    settings = load_settings(path)
+
+    assert settings.audio.microphone_device is None
+    assert settings.audio.loopback_device is None
