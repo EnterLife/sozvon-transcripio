@@ -30,7 +30,11 @@ def list_audio_devices() -> list[AudioDevice]:
         logger.warning("sounddevice is unavailable: %s", exc)
         return []
 
-    return _list_audio_devices(sd)
+    try:
+        return _list_audio_devices(sd)
+    except Exception as exc:
+        logger.warning("Could not list audio devices: %s", exc)
+        return []
 
 
 def list_microphone_devices(devices: list[AudioDevice] | None = None) -> list[AudioDevice]:

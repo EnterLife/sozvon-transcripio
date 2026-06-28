@@ -6,6 +6,7 @@ from audio.devices import (
     default_loopback_index,
     default_microphone_index,
     diagnose_audio,
+    list_audio_devices,
     list_loopback_devices,
     list_microphone_devices,
     resolve_loopback_index,
@@ -119,6 +120,36 @@ def test_diagnose_audio_rejects_non_wasapi_loopback(monkeypatch) -> None:
 
     assert diagnostics.loopback_available is False
     assert diagnostics.messages == ["Loopback requires a WASAPI output device: Speakers"]
+
+
+def test_list_audio_devices_returns_empty_when_hostapi_query_fails(monkeypatch) -> None:
+    sd = SimpleNamespace(
+        query_hostapis=lambda: (_ for _ in ()).throw(RuntimeError("portaudio offline")),
+        query_devices=lambda index=None: [],
+    )
+    monkeypatch.setitem(sys.modules, "sounddevice", sd)
+
+    assert list_audio_devices() == []
+
+
+def test_diagnose_audio_reports_no_devices_when_device_query_fails(monkeypatch) -> None:
+    sd = SimpleNamespace(
+        query_hostapis=lambda: [{"name": "Windows WASAPI"}],
+        query_devices=lambda index=None: (_ for _ in ()).throw(RuntimeError("device scan failed")),
+        default=SimpleNamespace(device=[-1, -1]),
+    )
+    monkeypatch.setitem(sys.modules, "sounddevice", sd)
+
+    diagnostics = diagnose_audio(microphone_device=None, loopback_device=None)
+
+    assert diagnostics.sounddevice_available is True
+    assert diagnostics.microphone_available is False
+    assert diagnostics.loopback_available is False
+    assert diagnostics.messages == [
+        "No audio devices detected.",
+        "No microphone input device found.",
+        "No WASAPI output device found for loopback capture.",
+    ]
 
 
 def fake_sounddevice(hostapis, devices, default_device):
